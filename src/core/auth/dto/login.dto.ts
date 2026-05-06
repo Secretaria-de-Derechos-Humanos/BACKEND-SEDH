@@ -3,12 +3,12 @@ import { ApiProperty } from '@nestjs/swagger';
 
 export class LoginDto {
   @ApiProperty({ example: 'usuario@sedh.gob.hn' })
-  @IsEmail({}, { message: 'El correo no es válido' })
+  @IsEmail({}, { message: 'El correo no es valido' })
   @IsNotEmpty()
-  email: string;
+  email!: string;
 
   @ApiProperty({ example: 'MiContrasena' })
   @IsString()
   @IsNotEmpty()
-  contrasena: string;
+  contrasena!: string;
 }
