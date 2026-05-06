@@ -1,9 +1,17 @@
 import { Module } from '@nestjs/common';
-import { AsistenciasModule } from './asistencias/asistencias.module';
-import { ReportesPermisosModule } from './reportes-permisos/reportes-permisos.module';
-import { SolicitudesModule } from './solicitudes/solicitudes.module';
+import { CatalogosModule } from './catalogos/catalogos.module';
+import { EmpleadosModule } from './empleados/empleados.module';
+import { PermisosOficialesModule } from './solicitudes/permisos-oficiales/permisos-oficiales.module';
+import { PermisosPersonalesModule } from './solicitudes/permisos-personales/permisos-personales.module';
+import { VacacionesModule } from './solicitudes/vacaciones/vacaciones.module';
 
 @Module({
-  imports: [AsistenciasModule, ReportesPermisosModule, SolicitudesModule],
+  imports: [
+    CatalogosModule,
+    EmpleadosModule,
+    PermisosOficialesModule,
+    PermisosPersonalesModule,
+    VacacionesModule,
+  ],
 })
 export class RecursosHumanosModule {}

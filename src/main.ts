@@ -2,9 +2,7 @@ import { NestFactory } from '@nestjs/core';
 import { ValidationPipe } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
-import * as helmet from 'helmet';
-import * as session from 'express-session';
-import * as connectPgSimple from 'connect-pg-simple';
+import helmet from 'helmet';
 import { AppModule } from './app.module';
 import { HttpExceptionFilter } from './shared/filters/http-exception.filter';
 import { ResponseInterceptor } from './shared/interceptors/response.interceptor';
@@ -24,27 +22,6 @@ async function bootstrap() {
     methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
     credentials: true,
   });
-
-  // ── Sesiones (store en PostgreSQL) ────────────────────────────────────────
-  const PgStore = connectPgSimple(session);
-  app.use(
-    session({
-      store: new PgStore({
-        conString: `postgresql://${config.get('DB_USERNAME')}:${config.get('DB_PASSWORD')}@${config.get('DB_HOST')}:${config.get('DB_PORT')}/${config.get('DB_NAME')}`,
-        tableName: 'user_sessions',
-        createTableIfMissing: true,
-      }),
-      secret: config.get<string>('SESSION_SECRET'),
-      resave: false,
-      saveUninitialized: false,
-      cookie: {
-        secure: false,
-        httpOnly: true,
-        maxAge: config.get<number>('SESSION_MAX_AGE', 86400000),
-        sameSite: 'strict',
-      },
-    }),
-  );
 
   // ── Prefijo global y versionado ──────────────────────────────────────────
   app.setGlobalPrefix(config.get<string>('API_PREFIX', 'api/v1'));

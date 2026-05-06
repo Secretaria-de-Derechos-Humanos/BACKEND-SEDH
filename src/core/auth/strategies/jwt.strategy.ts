@@ -2,12 +2,11 @@ import { Injectable, UnauthorizedException } from '@nestjs/common';
 import { PassportStrategy } from '@nestjs/passport';
 import { ExtractJwt, Strategy } from 'passport-jwt';
 import { ConfigService } from '@nestjs/config';
-import { UsersService } from '../../users/users.service';
+import { UsuariosService } from '../../usuarios/usuarios.service';
 
 export interface JwtPayload {
   sub: string;
   email: string;
-  sessionId: string;
   iat?: number;
   exp?: number;
 }
@@ -16,7 +15,7 @@ export interface JwtPayload {
 export class JwtStrategy extends PassportStrategy(Strategy, 'jwt') {
   constructor(
     private readonly config: ConfigService,
-    private readonly usersService: UsersService,
+    private readonly usuariosService: UsuariosService,
   ) {
     super({
       jwtFromRequest: ExtractJwt.fromAuthHeaderAsBearerToken(),
@@ -27,12 +26,12 @@ export class JwtStrategy extends PassportStrategy(Strategy, 'jwt') {
   }
 
   async validate(payload: JwtPayload) {
-    const employee = await this.usersService.findOneById(payload.sub);
+    const usuario = await this.usuariosService.findById(payload.sub);
 
-    if (!employee || !employee.isActive) {
+    if (!usuario || !usuario.activo) {
       throw new UnauthorizedException('Token inválido o usuario inactivo');
     }
 
-    return employee;
+    return usuario;
   }
 }

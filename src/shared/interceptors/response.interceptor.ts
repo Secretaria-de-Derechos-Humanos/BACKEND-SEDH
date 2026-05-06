@@ -10,7 +10,7 @@ import { Request } from 'express';
 
 export interface ApiResponse<T> {
   success: boolean;
-  data: T;
+  data: T | null;
   message: string;
   timestamp: string;
   path: string;
