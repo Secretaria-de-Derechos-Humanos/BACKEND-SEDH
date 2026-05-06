@@ -1,37 +1,31 @@
 ﻿import { Injectable, UnauthorizedException } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
-import { ConfigService } from '@nestjs/config';
-import * as bcrypt from 'bcrypt';
-import { UsuariosService } from '../usuarios/usuarios.service';
+import { InjectDataSource } from '@nestjs/typeorm';
+import { DataSource } from 'typeorm';
 import { LoginDto } from './dto/login.dto';
 
 @Injectable()
 export class AuthService {
   constructor(
-    private readonly usuariosService: UsuariosService,
+    @InjectDataSource() private readonly dataSource: DataSource,
     private readonly jwtService: JwtService,
-    private readonly config: ConfigService,
   ) {}
 
-  async login(dto: LoginDto) {
-    const usuario = await this.usuariosService.findByEmail(dto.emailInstitucional);
+  async login(dto: LoginDto): Promise<{ accessToken: string }> {
+    const result = await this.dataSource.query(
+      `SELECT core.login($1, $2) AS resultado`,
+      [dto.email, dto.contrasena],
+    );
 
-    if (!usuario || !usuario.activo) {
-      throw new UnauthorizedException('Credenciales invalidas');
+    const payload = result[0]?.resultado;
+
+    if (!payload || payload.error) {
+      throw new UnauthorizedException(
+        payload?.error ?? 'Credenciales inválidas',
+      );
     }
 
-    const passwordValida = await bcrypt.compare(dto.contrasena, usuario.contrasena);
-    if (!passwordValida) {
-      throw new UnauthorizedException('Credenciales invalidas');
-    }
-
-    await this.usuariosService.actualizarUltimoAcceso(usuario.idUsuario);
-
-    const payload = { sub: usuario.idUsuario, email: usuario.emailInstitucional };
-    const accessToken = this.jwtService.sign(payload, {
-      algorithm: 'RS256',
-      expiresIn: this.config.get<string>('jwt.accessExpiration', '15m'),
-    });
+    const accessToken = this.jwtService.sign(payload);
 
     return { accessToken };
   }

@@ -1,7 +1,7 @@
 import { Injectable, CanActivate, ExecutionContext, ForbiddenException } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
 import { PERMISOS_KEY } from '../decorators/requiere-permiso.decorator';
-import { Usuario } from '../../core/usuarios/entities/usuario.entity';
+import { JwtPayload } from '../../core/auth/strategies/jwt.strategy';
 
 @Injectable()
 export class PermisosGuard implements CanActivate {
@@ -18,16 +18,14 @@ export class PermisosGuard implements CanActivate {
     }
 
     const request = context.switchToHttp().getRequest();
-    const usuario: Usuario = request.user;
+    const usuario: JwtPayload = request.user;
 
     if (!usuario?.roles) {
       throw new ForbiddenException('No tiene permisos para acceder a este recurso');
     }
 
-    // Obtener todos los nombres de permisos del usuario a través de sus roles
-    const permisosUsuario = usuario.roles.flatMap((rol) =>
-      rol.permisos.map((p) => p.nomPermiso),
-    );
+    // Permisos del usuario: array plano de strings desde el JWT
+    const permisosUsuario = usuario.roles.flatMap((rol) => rol.permisos);
 
     const tieneAcceso = requeridos.every((p) => permisosUsuario.includes(p));
 
