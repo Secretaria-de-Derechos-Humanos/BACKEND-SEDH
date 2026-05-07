@@ -183,64 +183,6 @@ Ejemplos de permisos:
 
 ---
 
-## Endpoints disponibles
-
-### Autenticación
-| Método | Ruta | Descripción |
-|---|---|---|
-| POST | `/api/v1/auth/login` | Iniciar sesión (rate limit: 5/min) |
-| GET | `/api/v1/auth/perfil` | Perfil del usuario autenticado |
-
-### Core
-| Método | Ruta | Descripción |
-|---|---|---|
-| GET | `/api/v1/usuarios` | Listar usuarios |
-| GET | `/api/v1/usuarios/:id` | Obtener usuario |
-| POST | `/api/v1/usuarios` | Crear usuario |
-| PATCH | `/api/v1/usuarios/:id` | Actualizar usuario |
-| GET | `/api/v1/roles` | Listar roles |
-| GET | `/api/v1/roles/:id` | Obtener rol |
-| GET | `/api/v1/modulos` | Listar módulos |
-| GET | `/api/v1/permisos` | Listar permisos |
-
-### Recursos Humanos — Catálogos
-| Método | Ruta |
-|---|---|
-| GET | `/api/v1/recursos-humanos/catalogos/cargos` |
-| GET | `/api/v1/recursos-humanos/catalogos/dependencias` |
-| GET | `/api/v1/recursos-humanos/catalogos/departamentos` |
-| GET | `/api/v1/recursos-humanos/catalogos/municipios` |
-| GET | `/api/v1/recursos-humanos/catalogos/sexos` |
-| GET | `/api/v1/recursos-humanos/catalogos/estados-civiles` |
-| GET | `/api/v1/recursos-humanos/catalogos/tipos-contrataciones` |
-| GET | `/api/v1/recursos-humanos/catalogos/estados-solicitudes` |
-| GET | `/api/v1/recursos-humanos/catalogos/tipos-solicitudes-empleados` |
-
-### Recursos Humanos — Empleados
-| Método | Ruta | Permiso requerido |
-|---|---|---|
-| GET | `/api/v1/recursos-humanos/empleados` | `rrhh.empleados.leer` |
-| GET | `/api/v1/recursos-humanos/empleados/:email` | `rrhh.empleados.leer` |
-| POST | `/api/v1/recursos-humanos/empleados` | `rrhh.empleados.crear` |
-| PATCH | `/api/v1/recursos-humanos/empleados/:email` | `rrhh.empleados.actualizar` |
-| GET | `/api/v1/recursos-humanos/empleados/:email/historial-cargos` | `rrhh.empleados.leer` |
-| GET | `/api/v1/recursos-humanos/empleados/:email/horas-disponibles` | `rrhh.empleados.leer` |
-
-### Recursos Humanos — Solicitudes
-| Método | Ruta | Permiso requerido |
-|---|---|---|
-| GET | `/api/v1/recursos-humanos/permisos-oficiales` | `rrhh.permisos-oficiales.leer` |
-| GET | `/api/v1/recursos-humanos/permisos-oficiales/empleado/:email` | `rrhh.permisos-oficiales.leer` |
-| GET | `/api/v1/recursos-humanos/permisos-oficiales/:id` | `rrhh.permisos-oficiales.leer` |
-| GET | `/api/v1/recursos-humanos/permisos-personales` | `rrhh.permisos-personales.leer` |
-| GET | `/api/v1/recursos-humanos/permisos-personales/empleado/:email` | `rrhh.permisos-personales.leer` |
-| GET | `/api/v1/recursos-humanos/permisos-personales/:id` | `rrhh.permisos-personales.leer` |
-| GET | `/api/v1/recursos-humanos/vacaciones` | `rrhh.vacaciones.leer` |
-| GET | `/api/v1/recursos-humanos/vacaciones/empleado/:email` | `rrhh.vacaciones.leer` |
-| GET | `/api/v1/recursos-humanos/vacaciones/:id` | `rrhh.vacaciones.leer` |
-
----
-
 ## Módulos disponibles
 
 | Módulo | Submódulos | Estado |
@@ -248,4 +190,47 @@ Ejemplos de permisos:
 | Core (auth, usuarios, roles, módulos, permisos) | — | ✅ Implementado |
 | Recursos Humanos | catalogos, empleados, permisos-oficiales, permisos-personales, vacaciones | ✅ Implementado |
 | *(futuros módulos)* | — | 🔜 Pendiente |
+
+---
+
+## Despliegue en producción (Windows Server 2022 + IIS)
+
+El backend corre en producción bajo **IIS como reverse proxy HTTPS → PM2 → NestJS (puerto 3000)**.
+
+- **URL pública:** `https://api.sedh.gob.hn`
+- **Certificado SSL:** wildcard `*.sedh.gob.hn` (Sectigo)
+- **Gestor de procesos:** PM2 (registrado como servicio de Windows — arranca automáticamente)
+
+### Subir cambios a producción
+
+```bash
+# 1. Compilar el proyecto
+npm run build
+
+# 2. Recargar el proceso (sin downtime)
+pm2 restart sedh-backend
+```
+
+> No es necesario reiniciar IIS. IIS solo actúa como túnel HTTPS y no ejecuta código Node.js.
+
+### Comandos PM2 útiles
+
+```bash
+pm2 list                     # Ver estado del proceso
+pm2 logs sedh-backend        # Ver logs en tiempo real
+pm2 restart sedh-backend     # Reiniciar el proceso
+pm2 stop sedh-backend        # Detener el proceso
+pm2 save                     # Guardar lista de procesos (persiste tras reinicio)
+```
+
+### Infraestructura del servidor
+
+| Componente | Detalle |
+|---|---|
+| OS | Windows Server 2022 |
+| Web server | IIS 10.0 con URL Rewrite + ARR |
+| Puerto público | 443 (HTTPS) |
+| Puerto interno Node.js | 3000 |
+| Directorio IIS | `C:\inetpub\api-sedh\` |
+| web.config | Reverse proxy `*` → `http://localhost:3000/{R:1}` |
 

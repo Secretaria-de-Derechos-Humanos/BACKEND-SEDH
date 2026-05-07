@@ -11,6 +11,12 @@ export interface RolJwt {
 export interface JwtPayload {
   sub: string;           // uuid del usuario
   email: string;
+  telefono: string;
+  nombre: string;
+  apellido: string;
+  puesto: string;
+  dependencia: string;
+  fechaIngreso: string;
   roles: RolJwt[];
   tipo: string;
   jti: string;

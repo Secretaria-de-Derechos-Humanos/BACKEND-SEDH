@@ -16,9 +16,19 @@ export interface RolLogin {
   r: number;
   m: number[];
 }
+
+export interface InstitucionInfo {
+  nombre: string;
+  apellido: string;
+  puesto: string;
+  dependencia: string;
+  fechaIngreso: string;
+}
+
 export interface LoginFnResult {
   status: string;
-  usuario: { id: string; email: string };
+  usuario: { id: string; email: string; telefono: string };
+  institucionalInfo: InstitucionInfo;
   roles: RolLogin[];
 }
 
@@ -139,11 +149,17 @@ export class AuthService {
     const jtiAccess = crypto.randomUUID();
     const jtiRefresh = crypto.randomUUID();
 
-    // Access token: sub (uuid), email, roles compactos, tipo, jti
+    // Access token: sub (uuid), email, datos institucionales, roles compactos, tipo, jti
     const accessToken = this.jwtService.sign(
       {
         sub: datos.usuario.id,
         email: datos.usuario.email,
+        telefono: datos.usuario.telefono,
+        nombre: datos.institucionalInfo.nombre,
+        apellido: datos.institucionalInfo.apellido,
+        puesto: datos.institucionalInfo.puesto,
+        dependencia: datos.institucionalInfo.dependencia,
+        fechaIngreso: datos.institucionalInfo.fechaIngreso,
         roles: datos.roles,
         tipo: 'access',
         jti: jtiAccess,
@@ -181,7 +197,10 @@ export class AuthService {
       }),
     );
 
-    return { accessToken, refreshToken: refreshTokenRaw };
+    return {
+      accessToken,
+      refreshToken: refreshTokenRaw,
+    };
   }
 
   private hashToken(token: string): string {
