@@ -12,7 +12,10 @@ import * as crypto from 'crypto';
 import { LoginDto } from './dto/login.dto';
 import { RefreshToken } from './entities/refresh-token.entity';
 
-export interface RolLogin { r: number; m: number[] }
+export interface RolLogin {
+  r: number;
+  m: number[];
+}
 export interface LoginFnResult {
   status: string;
   usuario: { id: string; email: string };
@@ -40,10 +43,10 @@ export class AuthService {
   async login(dto: LoginDto): Promise<TokensResponse> {
     let result: any[];
     try {
-      result = await this.dataSource.query(
-        `SELECT core.login($1, $2) AS resultado`,
-        [dto.email, dto.contrasena],
-      );
+      result = await this.dataSource.query(`SELECT core.login($1, $2) AS resultado`, [
+        dto.email,
+        dto.contrasena,
+      ]);
     } catch (err) {
       this.logger.error('Error al llamar core.login():', err);
       throw new InternalServerErrorException();
@@ -95,10 +98,9 @@ export class AuthService {
     // Obtener datos actualizados del usuario desde la BD
     let refreshResult: any[];
     try {
-      refreshResult = await this.dataSource.query(
-        `SELECT core.login_by_email($1) AS resultado`,
-        [stored.emailInstitucional],
-      );
+      refreshResult = await this.dataSource.query(`SELECT core.login_by_email($1) AS resultado`, [
+        stored.emailInstitucional,
+      ]);
     } catch (err) {
       this.logger.error('Error al llamar core.login_by_email():', err);
       throw new InternalServerErrorException();

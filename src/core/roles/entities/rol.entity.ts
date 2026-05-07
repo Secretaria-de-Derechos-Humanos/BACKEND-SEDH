@@ -5,10 +5,10 @@ import { Permiso } from '../../permisos/entities/permiso.entity';
 @Entity({ name: 'roles', schema: 'core' })
 export class Rol extends EntidadAuditoria {
   @PrimaryColumn({ name: 'idrol', type: 'smallint' })
-  idRol: number;
+  idRol!: number;
 
   @Column({ name: 'nomrol', type: 'varchar', length: 50 })
-  nomRol: string;
+  nomRol!: string;
 
   @ManyToMany(() => Permiso, { eager: true })
   @JoinTable({
@@ -17,5 +17,5 @@ export class Rol extends EntidadAuditoria {
     joinColumn: { name: 'idrol', referencedColumnName: 'idRol' },
     inverseJoinColumn: { name: 'idpermiso', referencedColumnName: 'idPermiso' },
   })
-  permisos: Permiso[];
+  permisos!: Permiso[];
 }

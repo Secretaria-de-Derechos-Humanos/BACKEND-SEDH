@@ -5,15 +5,15 @@ import { Dependencia } from './dependencia.entity';
 @Entity({ name: 'cargos', schema: 'rrhh' })
 export class Cargo extends EntidadAuditoria {
   @PrimaryColumn({ name: 'idcargo', type: 'smallint' })
-  idCargo: number;
+  idCargo!: number;
 
   @Column({ name: 'nomcargo', type: 'varchar', length: 100, nullable: true })
-  nomCargo: string | null;
+  nomCargo!: string | null;
 
   @Column({ name: 'iddependencia', type: 'smallint' })
-  idDependencia: number;
+  idDependencia!: number;
 
   @ManyToOne(() => Dependencia, { onDelete: 'RESTRICT', onUpdate: 'CASCADE' })
   @JoinColumn({ name: 'iddependencia' })
-  dependencia: Dependencia;
+  dependencia!: Dependencia;
 }
