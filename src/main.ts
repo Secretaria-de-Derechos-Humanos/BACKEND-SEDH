@@ -3,6 +3,7 @@ import { ValidationPipe } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import helmet from 'helmet';
+import cookieParser from 'cookie-parser';
 import { AppModule } from './app.module';
 import { HttpExceptionFilter } from './shared/filters/http-exception.filter';
 import { ResponseInterceptor } from './shared/interceptors/response.interceptor';
@@ -13,6 +14,7 @@ async function bootstrap() {
 
   // ── Seguridad ────────────────────────────────────────────────────────────
   app.use(helmet());
+  app.use(cookieParser());
 
 
   // ── CORS ─────────────────────────────────────────────────────────────────

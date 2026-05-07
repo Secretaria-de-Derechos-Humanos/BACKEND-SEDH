@@ -5,18 +5,18 @@ import { Modulo } from '../../modulos/entities/modulo.entity';
 @Entity({ name: 'permisos', schema: 'core' })
 export class Permiso extends EntidadAuditoria {
   @PrimaryColumn({ name: 'idpermiso', type: 'smallint' })
-  idPermiso: number;
+  idPermiso!: number;
 
   @Column({ name: 'idmodulo', type: 'smallint' })
-  idModulo: number;
+  idModulo!: number;
 
   @Column({ name: 'nompermiso', type: 'varchar', length: 80 })
-  nomPermiso: string;
+  nomPermiso!: string;
 
   @Column({ type: 'varchar', length: 150, nullable: true })
-  descripcion: string | null;
+  descripcion!: string | null;
 
   @ManyToOne(() => Modulo, { onDelete: 'RESTRICT', onUpdate: 'CASCADE' })
   @JoinColumn({ name: 'idmodulo' })
-  modulo: Modulo;
+  modulo!: Modulo;
 }

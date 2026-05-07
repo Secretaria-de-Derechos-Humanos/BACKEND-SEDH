@@ -19,6 +19,8 @@ export const validationSchema = Joi.object({
   JWT_PUBLIC_KEY_PATH: Joi.string().required(),
   JWT_ACCESS_EXPIRATION: Joi.string().default('15m'),
   JWT_REFRESH_EXPIRATION: Joi.string().default('7d'),
+  JWT_ISSUER: Joi.string().default('sedh-backend'),
+  JWT_AUDIENCE: Joi.string().default('sedh-frontend'),
 
   // Sesión
   SESSION_SECRET: Joi.string().min(32).required(),

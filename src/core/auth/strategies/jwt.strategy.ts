@@ -1,18 +1,21 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, UnauthorizedException } from '@nestjs/common';
 import { PassportStrategy } from '@nestjs/passport';
 import { ExtractJwt, Strategy } from 'passport-jwt';
 import { ConfigService } from '@nestjs/config';
 
 export interface RolJwt {
-  rol: string;
-  idrol: number;
-  modulos: string[];
-  permisos: string[];
+  r: number;   // idrol
+  m: number[]; // ids de módulos
 }
 
 export interface JwtPayload {
+  sub: string;           // uuid del usuario
   email: string;
   roles: RolJwt[];
+  tipo: string;
+  jti: string;
+  iss?: string;
+  aud?: string | string[];
   iat?: number;
   exp?: number;
 }
@@ -25,10 +28,15 @@ export class JwtStrategy extends PassportStrategy(Strategy, 'jwt') {
       ignoreExpiration: false,
       secretOrKey: config.get<string>('jwt.publicKey'),
       algorithms: ['RS256'],
+      issuer: config.get<string>('jwt.issuer'),
+      audience: config.get<string>('jwt.audience'),
     });
   }
 
   validate(payload: JwtPayload): JwtPayload {
+    if (payload.tipo !== 'access') {
+      throw new UnauthorizedException('Tipo de token incorrecto');
+    }
     return payload;
   }
 }

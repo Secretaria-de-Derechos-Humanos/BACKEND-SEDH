@@ -11,6 +11,8 @@ export const jwtConfig = registerAs('jwt', () => {
     publicKey: fs.existsSync(publicKeyPath) ? fs.readFileSync(publicKeyPath, 'utf-8') : '',
     accessExpiration: process.env.JWT_ACCESS_EXPIRATION ?? '15m',
     refreshExpiration: process.env.JWT_REFRESH_EXPIRATION ?? '7d',
+    issuer: process.env.JWT_ISSUER ?? 'sedh-backend',
+    audience: process.env.JWT_AUDIENCE ?? 'sedh-frontend',
     algorithm: 'RS256' as const,
   };
 });

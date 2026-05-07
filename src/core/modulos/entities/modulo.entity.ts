@@ -4,11 +4,11 @@ import { EntidadAuditoria } from '../../../shared/database/base-audit.entity';
 @Entity({ name: 'modulos', schema: 'core' })
 export class Modulo extends EntidadAuditoria {
   @PrimaryColumn({ name: 'idmodulo', type: 'smallint' })
-  idModulo: number;
+  idModulo!: number;
 
   @Column({ name: 'nommodulo', type: 'varchar', length: 50 })
-  nomModulo: string;
+  nomModulo!: string;
 
   @Column({ type: 'varchar', length: 150, nullable: true })
-  descripcion: string | null;
+  descripcion!: string | null;
 }

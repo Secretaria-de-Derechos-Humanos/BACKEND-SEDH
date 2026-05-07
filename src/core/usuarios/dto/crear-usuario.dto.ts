@@ -4,7 +4,7 @@ import { ApiProperty } from '@nestjs/swagger';
 export class CrearUsuarioDto {
   @ApiProperty({ example: 'juan.perez@sedh.gob' })
   @IsEmail()
-  emailInstitucional: string;
+  emailInstitucional!: string;
 
   @ApiProperty({ example: 'Contrasena@123' })
   @IsString()
@@ -12,11 +12,11 @@ export class CrearUsuarioDto {
   @Matches(/^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&])/, {
     message: 'La contraseña debe tener mayúscula, minúscula, número y carácter especial',
   })
-  contrasena: string;
+  contrasena!: string;
 
   @ApiProperty({ example: 1 })
   @IsInt()
-  idRol: number;
+  idRol!: number;
 
   @ApiProperty({ example: 'admin@sedh.gob', required: false })
   @IsOptional()
