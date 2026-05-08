@@ -1,15 +1,13 @@
-import { Body, Controller, Get, Post, UseGuards } from '@nestjs/common';
+import { Body, Controller, Post, UseGuards } from '@nestjs/common';
 import { ApiBody, ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { IsEmail, IsNotEmpty } from 'class-validator';
 import { JwtAuthGuard } from '../../../../core/auth/guards/jwt-auth.guard';
-import { UsuarioActual } from '../../../../shared/decorators/usuario-actual.decorator';
-import { Usuario } from '../../../../core/usuarios/entities/usuario.entity';
 import { SolicitudesEmpleadosService } from './solicitudes-empleados.service';
 
 class EmailBodyDto {
   @IsEmail()
   @IsNotEmpty()
-  email: string;
+  email!: string;
 }
 
 @ApiTags('Solicitudes Empleados')
@@ -25,8 +23,9 @@ export class SolicitudesEmpleadosController {
     return this.solicitudesEmpleadosService.getSolicitudesEmpleadoRRHH(body.email);
   }
 
-  @Get('mis-solicitudes-emergencia')
-  getMisSolicitudesEmergencia(@UsuarioActual() usuario: Usuario) {
-    return this.solicitudesEmpleadosService.getMisSolicitudesEmergencia(usuario.emailInstitucional);
+  @Post('mis-solicitudes-emergencia')
+  @ApiBody({ type: EmailBodyDto })
+  getMisSolicitudesEmergencia(@Body() body: EmailBodyDto) {
+    return this.solicitudesEmpleadosService.getMisSolicitudesEmergencia(body.email);
   }
 }
