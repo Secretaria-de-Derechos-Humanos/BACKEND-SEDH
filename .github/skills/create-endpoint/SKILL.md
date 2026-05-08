@@ -294,6 +294,40 @@ return { success: true, data: resultado, message: 'OK' };
 
 ---
 
+## Patrón de servicio — Funciones PostgreSQL
+
+Las funciones de BD devuelven distintas estructuras. Extraer siempre el dato mínimo necesario.
+
+### Función que retorna JSON con envoltura `{ status, data }` (ej: `SELECT * FROM rrhh.mi_funcion($1)`)
+
+```typescript
+// La columna en rows[0] tiene el mismo nombre que la función
+// rows[0] = { mi_funcion: { status: "OK", data: { ... } } }
+const rows = await this.dataSource.query(
+  'SELECT * FROM rrhh.mi_funcion($1)',
+  [email],
+);
+return rows[0]?.mi_funcion?.data ?? null;
+// El interceptor envuelve en { success, data: {...campos...}, ... }
+```
+
+### Función que retorna JSON compuesto (ej: `SELECT to_json(rrhh.mi_funcion($1)) AS resultado`)
+
+```typescript
+// rows[0] = { resultado: { email, solicitudes: [...] } }
+const rows = await this.dataSource.query(
+  'SELECT to_json(rrhh.mi_funcion($1)) AS resultado',
+  [email],
+);
+return rows[0]?.resultado ?? { email, solicitudes: [] };
+```
+
+> **Regla**: nunca retornar `rows[0]` directo cuando la función tiene envoltura `{ status, data }`.  
+> Siempre desanidar hasta llegar a los datos planos para que el `ResponseInterceptor`  
+> produzca `{ success, data: { ...camposPlanos }, ... }` en vez de estructuras anidadas.
+
+---
+
 ## Checklist al crear un endpoint
 
 - [ ] El verbo es `@Post()` — no `@Get()`, `@Put()`, `@Patch()`, `@Delete()`

@@ -28,4 +28,10 @@ export class SolicitudesEmpleadosController {
   getMisSolicitudesEmergencia(@Body() body: EmailBodyDto) {
     return this.solicitudesEmpleadosService.getMisSolicitudesEmergencia(body.email);
   }
+
+  @Post('datos-permiso')
+  @ApiBody({ type: EmailBodyDto })
+  cargarDatosAgregarPermisos(@Body() body: EmailBodyDto) {
+    return this.solicitudesEmpleadosService.cargarDatosAgregarPermisos(body.email);
+  }
 }

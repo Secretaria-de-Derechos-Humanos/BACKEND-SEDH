@@ -20,4 +20,12 @@ export class SolicitudesEmpleadosService {
     );
     return rows[0]?.resultado ?? { email, emergencias: [] };
   }
+
+  async cargarDatosAgregarPermisos(email: string) {
+    const rows = await this.dataSource.query(
+      'SELECT * FROM rrhh.cargar_datos_para_agregar_permisos($1)',
+      [email],
+    );
+    return rows[0]?.cargar_datos_para_agregar_permisos?.data ?? null;
+  }
 }
