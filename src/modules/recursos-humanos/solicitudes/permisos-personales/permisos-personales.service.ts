@@ -9,9 +9,13 @@ export class PermisosPersonalesService {
     @InjectRepository(PermisoPersonal) private readonly repo: Repository<PermisoPersonal>,
   ) {}
 
-  findAll() { return this.repo.find(); }
+  findAll() {
+    return this.repo.find();
+  }
 
-  findByEmpleado(email: string) { return this.repo.find({ where: { emailInstitucional: email } }); }
+  findByEmpleado(email: string) {
+    return this.repo.find({ where: { emailInstitucional: email } });
+  }
 
   async findOne(id: string) {
     const permiso = await this.repo.findOne({ where: { idPermisoPersonal: id } });

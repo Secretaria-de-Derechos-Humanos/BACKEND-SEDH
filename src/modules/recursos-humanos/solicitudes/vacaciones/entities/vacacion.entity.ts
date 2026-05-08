@@ -40,7 +40,13 @@ export class Vacacion extends EntidadAuditoria {
   @Column({ name: 'fecretorno', type: 'date', nullable: true })
   fecRetorno: Date | null;
 
-  @Column({ name: 'peranterior', type: 'varchar', length: 11, nullable: true, default: 'NO APLICA' })
+  @Column({
+    name: 'peranterior',
+    type: 'varchar',
+    length: 11,
+    nullable: true,
+    default: 'NO APLICA',
+  })
   perAnterior: string | null;
 
   @Column({ name: 'cantperanterior', type: 'smallint', nullable: true, default: 0 })
