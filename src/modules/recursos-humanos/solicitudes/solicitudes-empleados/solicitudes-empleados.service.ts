@@ -6,14 +6,18 @@ export class SolicitudesEmpleadosService {
   constructor(private readonly dataSource: DataSource) {}
 
   async getSolicitudesEmpleadoRRHH(email: string) {
-    const rows = await this.dataSource.query('SELECT * FROM rrhh.mis_solicitudes($1)', [email]);
-    return { email, solicitudes: rows };
+    const rows = await this.dataSource.query(
+      'SELECT to_json(rrhh.mis_solicitudes($1)) AS resultado',
+      [email],
+    );
+    return rows[0]?.resultado ?? { email, solicitudes: [] };
   }
 
   async getMisSolicitudesEmergencia(email: string) {
-    const rows = await this.dataSource.query('SELECT * FROM rrhh.mis_solicitudes_emergencia($1)', [
-      email,
-    ]);
-    return { email, emergencias: rows };
+    const rows = await this.dataSource.query(
+      'SELECT to_json(rrhh.mis_solicitudes_emergencia($1)) AS resultado',
+      [email],
+    );
+    return rows[0]?.resultado ?? { email, emergencias: [] };
   }
 }
