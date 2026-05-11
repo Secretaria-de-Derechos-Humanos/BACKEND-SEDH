@@ -8,6 +8,7 @@ import { SolicitudesEmpleadosModule } from './solicitudes/solicitudes-empleados/
 import { SolicitudesJefeInmediatoModule } from './solicitudes/solicitudes-jefe-inmediato/solicitudes-jefe-inmediato.module';
 import { SolicitudesSubgerenteRrhhModule } from './solicitudes/solicitudes-subgerente-rrhh/solicitudes-subgerente-rrhh.module';
 import { SolicitudesAgenteSeguriadModule } from './solicitudes/solicitudes-agente-seguridad/solicitudes-agente-seguridad.module';
+import { ReportesPermisosModule } from './reportes-permisos/reportes-permisos.module';
 
 @Module({
   imports: [
@@ -20,6 +21,7 @@ import { SolicitudesAgenteSeguriadModule } from './solicitudes/solicitudes-agent
     SolicitudesJefeInmediatoModule,
     SolicitudesSubgerenteRrhhModule,
     SolicitudesAgenteSeguriadModule,
+    ReportesPermisosModule,
   ],
 })
 export class RecursosHumanosModule {}
