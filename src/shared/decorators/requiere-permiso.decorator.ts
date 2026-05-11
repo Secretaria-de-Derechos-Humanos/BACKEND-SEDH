@@ -1,6 +1,11 @@
 import { SetMetadata } from '@nestjs/common';
 
-export const PERMISOS_KEY = 'permisos';
+export const MODULOS_KEY = 'modulos';
 
-export const RequierePermiso = (...nomPermisos: string[]) =>
-  SetMetadata(PERMISOS_KEY, nomPermisos);
+/**
+ * Protege un endpoint verificando que el usuario tenga acceso
+ * a al menos uno de los módulos indicados (por idmodulo).
+ * Los IDs vienen del JWT payload: roles[].m[]
+ */
+export const RequiereModulo = (...idModulos: number[]) =>
+  SetMetadata(MODULOS_KEY, idModulos);

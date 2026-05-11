@@ -1,6 +1,6 @@
 import { Entity, PrimaryColumn, Column, ManyToMany, JoinTable } from 'typeorm';
 import { EntidadAuditoria } from '../../../shared/database/base-audit.entity';
-import { Permiso } from '../../permisos/entities/permiso.entity';
+import { Modulo } from '../../modulos/entities/modulo.entity';
 
 @Entity({ name: 'roles', schema: 'core' })
 export class Rol extends EntidadAuditoria {
@@ -10,12 +10,12 @@ export class Rol extends EntidadAuditoria {
   @Column({ name: 'nomrol', type: 'varchar', length: 50 })
   nomRol!: string;
 
-  @ManyToMany(() => Permiso, { eager: true })
+  @ManyToMany(() => Modulo, { eager: true })
   @JoinTable({
-    name: 'roles_permisos',
+    name: 'roles_modulos',
     schema: 'core',
     joinColumn: { name: 'idrol', referencedColumnName: 'idRol' },
-    inverseJoinColumn: { name: 'idpermiso', referencedColumnName: 'idPermiso' },
+    inverseJoinColumn: { name: 'idmodulo', referencedColumnName: 'idModulo' },
   })
-  permisos!: Permiso[];
+  modulos!: Modulo[];
 }
