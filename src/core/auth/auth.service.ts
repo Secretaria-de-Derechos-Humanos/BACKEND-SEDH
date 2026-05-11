@@ -287,12 +287,11 @@ export class AuthService {
       SELECT
         ur.idrol,
         COALESCE(
-          array_agg(DISTINCT p.idmodulo) FILTER (WHERE p.idmodulo IS NOT NULL),
+          array_agg(DISTINCT rm.idmodulo) FILTER (WHERE rm.idmodulo IS NOT NULL),
           '{}'
         ) AS modulos
       FROM core.usuario_roles ur
-      LEFT JOIN core.roles_permisos rp ON rp.idrol = ur.idrol
-      LEFT JOIN core.permisos p ON p.idpermiso = rp.idpermiso
+      LEFT JOIN core.roles_modulos rm ON rm.idrol = ur.idrol
       WHERE ur.idusuario = $1
       GROUP BY ur.idrol
       ORDER BY ur.idrol

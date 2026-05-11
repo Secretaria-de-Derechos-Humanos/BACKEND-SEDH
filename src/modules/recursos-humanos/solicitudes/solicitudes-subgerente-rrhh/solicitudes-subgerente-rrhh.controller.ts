@@ -3,6 +3,7 @@ import { ApiBody, ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { JwtAuthGuard } from '../../../../core/auth/guards/jwt-auth.guard';
 import { SolicitudesSubgerenteRrhhService } from './solicitudes-subgerente-rrhh.service';
 import { CargarPendientesSubgerenteDto } from './dto/cargar-pendientes-subgerente.dto';
+import { ResponderSolicitudSubgerenteDto } from './dto/responder-solicitud-subgerente.dto';
 
 @ApiTags('Solicitudes Subgerente RRHH')
 @ApiBearerAuth()
@@ -18,5 +19,12 @@ export class SolicitudesSubgerenteRrhhController {
   @ApiBody({ type: CargarPendientesSubgerenteDto })
   cargarPendientes(@Body() body: CargarPendientesSubgerenteDto) {
     return this.solicitudesSubgerenteRrhhService.cargarPendientes(body);
+  }
+
+  @Post('responder')
+  @ApiOperation({ summary: 'Aprobar o rechazar una solicitud como subgerente RRHH' })
+  @ApiBody({ type: ResponderSolicitudSubgerenteDto })
+  responderSolicitud(@Body() body: ResponderSolicitudSubgerenteDto) {
+    return this.solicitudesSubgerenteRrhhService.responderSolicitud(body);
   }
 }
