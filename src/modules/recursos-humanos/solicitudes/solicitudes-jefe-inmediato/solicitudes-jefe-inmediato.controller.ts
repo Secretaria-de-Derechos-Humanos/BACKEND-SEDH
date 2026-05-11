@@ -3,6 +3,7 @@ import { ApiBody, ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { JwtAuthGuard } from '../../../../core/auth/guards/jwt-auth.guard';
 import { SolicitudesJefeInmediatoService } from './solicitudes-jefe-inmediato.service';
 import { CargarPendientesJefeDto } from './dto/cargar-pendientes-jefe.dto';
+import { ResponderSolicitudJefeDto } from './dto/responder-solicitud-jefe.dto';
 
 @ApiTags('Solicitudes Jefe Inmediato')
 @ApiBearerAuth()
@@ -20,5 +21,12 @@ export class SolicitudesJefeInmediatoController {
       body.rol,
       body.idmodulo,
     );
+  }
+
+  @Post('responder')
+  @ApiOperation({ summary: 'Aprobar o rechazar una solicitud como jefe inmediato' })
+  @ApiBody({ type: ResponderSolicitudJefeDto })
+  responderSolicitud(@Body() body: ResponderSolicitudJefeDto) {
+    return this.solicitudesJefeInmediatoService.responderSolicitud(body);
   }
 }
