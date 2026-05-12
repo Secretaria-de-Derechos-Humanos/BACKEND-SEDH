@@ -1,4 +1,9 @@
-import { Injectable, InternalServerErrorException, Logger, NotFoundException } from '@nestjs/common';
+import {
+  Injectable,
+  InternalServerErrorException,
+  Logger,
+  NotFoundException,
+} from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { DataSource, Repository } from 'typeorm';
 import { Empleado } from './entities/empleado.entity';
@@ -19,7 +24,9 @@ export class EmpleadosService {
   ) {}
 
   findAll() {
-    return this.empleadoRepo.find({ relations: ['cargo', 'tipoContratacion', 'sexo', 'estadoCivil'] });
+    return this.empleadoRepo.find({
+      relations: ['cargo', 'tipoContratacion', 'sexo', 'estadoCivil'],
+    });
   }
 
   async findOne(email: string) {
@@ -50,15 +57,71 @@ export class EmpleadosService {
     return this.horasRepo.find({ where: { emailInstitucional: email } });
   }
 
-  async buscarEmpleadoAdmin(emailEmpleado: string, emailAdmin: string, rol: number, idmodulo: number) {
+  async buscarEmpleadoAdmin(
+    emailEmpleado: string,
+    emailAdmin: string,
+    rol: number,
+    idmodulo: number,
+  ) {
     try {
-      const rows = await this.dataSource.query(
-        'SELECT rrhh.buscar_empleado($1, $2, $3, $4)',
-        [emailEmpleado, emailAdmin, String(rol), String(idmodulo)],
-      );
+      const rows = await this.dataSource.query('SELECT rrhh.buscar_empleado($1, $2, $3, $4)', [
+        emailEmpleado,
+        emailAdmin,
+        String(rol),
+        String(idmodulo),
+      ]);
       return rows[0]?.buscar_empleado ?? null;
     } catch (error) {
       this.logger.error(`Error en buscarEmpleadoAdmin: ${error}`);
+      throw new InternalServerErrorException(`DB Error: ${(error as Error).message}`);
+    }
+  }
+
+  async obtenerDatosSedh() {
+    try {
+      const rows = await this.dataSource.query('SELECT rrhh.obtener_datos_sedh()');
+      return rows[0]?.obtener_datos_sedh ?? null;
+    } catch (error) {
+      this.logger.error(`Error en obtenerDatosSedh: ${error}`);
+      throw new InternalServerErrorException(`DB Error: ${(error as Error).message}`);
+    }
+  }
+
+  async actualizarEmpleadoAdmin(
+    emailEmpleado: string,
+    emailAdmin: string,
+    rol: number,
+    idmodulo: number,
+    payload: { empleado: object; accesosSistema: object[] },
+  ) {
+    try {
+      const rows = await this.dataSource.query(
+        'SELECT rrhh.actualizar_empleado($1, $2, $3, $4, $5)',
+        [emailEmpleado, emailAdmin, String(rol), String(idmodulo), JSON.stringify(payload)],
+      );
+      return rows[0]?.actualizar_empleado ?? null;
+    } catch (error) {
+      this.logger.error(`Error en actualizarEmpleadoAdmin: ${error}`);
+      throw new InternalServerErrorException(`DB Error: ${(error as Error).message}`);
+    }
+  }
+
+  async crearEmpleadoAdmin(
+    emailAdmin: string,
+    rol: number,
+    idmodulo: number,
+    payload: { contrasena: string; empleado: object; accesosSistema: object[] },
+  ) {
+    try {
+      const rows = await this.dataSource.query('SELECT rrhh.crear_empleado($1, $2, $3, $4)', [
+        emailAdmin,
+        String(rol),
+        String(idmodulo),
+        JSON.stringify(payload),
+      ]);
+      return rows[0]?.crear_empleado ?? null;
+    } catch (error) {
+      this.logger.error(`Error en crearEmpleadoAdmin: ${error}`);
       throw new InternalServerErrorException(`DB Error: ${(error as Error).message}`);
     }
   }
