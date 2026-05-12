@@ -1,6 +1,6 @@
 import { Injectable, NotFoundException, ConflictException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { DataSource, Repository } from 'typeorm';
 import * as bcrypt from 'bcrypt';
 import { Usuario } from './entities/usuario.entity';
 import { CrearUsuarioDto } from './dto/crear-usuario.dto';
@@ -11,6 +11,7 @@ export class UsuariosService {
   constructor(
     @InjectRepository(Usuario)
     private readonly repo: Repository<Usuario>,
+    private readonly dataSource: DataSource,
   ) {}
 
   findAll(): Promise<Usuario[]> {
@@ -52,5 +53,13 @@ export class UsuariosService {
 
   async actualizarUltimoAcceso(idUsuario: string): Promise<void> {
     await this.repo.update({ idUsuario }, { ultimoAcceso: new Date() });
+  }
+
+  async obtenerHeatmapActividades(email: string): Promise<unknown> {
+    const result = await this.dataSource.query(
+      `SELECT core.obtener_heatmap_actividades_usuario($1)`,
+      [email],
+    );
+    return result[0]['obtener_heatmap_actividades_usuario'];
   }
 }
