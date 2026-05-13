@@ -8,6 +8,28 @@ import { AppModule } from './app.module';
 import { HttpExceptionFilter } from './shared/filters/http-exception.filter';
 import { ResponseInterceptor } from './shared/interceptors/response.interceptor';
 
+function normalizarOrigen(origen: string): string {
+  try {
+    return new URL(origen).origin;
+  } catch {
+    return origen.trim().replace(/\/+$/, '');
+  }
+}
+
+function construirPatronOrigen(origenConfig: string): RegExp | string {
+  const origenNormalizado = normalizarOrigen(origenConfig);
+
+  if (!origenNormalizado.includes('*')) {
+    return origenNormalizado;
+  }
+
+  const origenEscapado = origenNormalizado
+    .replace(/[.+?^${}()|[\]\\]/g, '\\$&')
+    .replace(/\*/g, '[^.\\/]+');
+
+  return new RegExp(`^${origenEscapado}$`);
+}
+
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
   const config = app.get(ConfigService);
@@ -18,13 +40,42 @@ async function bootstrap() {
 
 
   // ── CORS ─────────────────────────────────────────────────────────────────
-  const allowedOrigins = config
+  const originsConfig = config
     .get<string>('CORS_ORIGINS', '')
     .split(',')
     .map((origen) => origen.trim())
     .filter(Boolean);
+
+  const permitirCualquierOrigen = originsConfig.includes('*');
+  const allowedOrigins = originsConfig
+    .filter((origen) => origen !== '*')
+    .map((origen) => construirPatronOrigen(origen));
+
   app.enableCors({
-    origin: allowedOrigins,
+    origin: (origenSolicitud, callback) => {
+      // Permite clientes no navegador (sin header Origin) como health checks o Postman.
+      if (!origenSolicitud) {
+        return callback(null, true);
+      }
+
+      const origenNormalizado = normalizarOrigen(origenSolicitud);
+      const origenPermitido = allowedOrigins.some((origenConfig) => {
+        if (origenConfig instanceof RegExp) {
+          return origenConfig.test(origenNormalizado);
+        }
+
+        return origenConfig === origenNormalizado;
+      });
+
+      if (
+        permitirCualquierOrigen
+        || origenPermitido
+      ) {
+        return callback(null, true);
+      }
+
+      return callback(new Error(`Origen no permitido por CORS: ${origenNormalizado}`), false);
+    },
     methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
     credentials: true,
   });
