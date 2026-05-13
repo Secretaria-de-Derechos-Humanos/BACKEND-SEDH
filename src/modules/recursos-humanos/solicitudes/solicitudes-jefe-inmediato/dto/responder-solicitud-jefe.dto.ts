@@ -1,5 +1,15 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { IsEmail, IsIn, IsInt, IsNotEmpty, IsOptional, IsPositive, IsString, IsUUID } from 'class-validator';
+import {
+  IsEmail,
+  IsIn,
+  IsInt,
+  IsNotEmpty,
+  IsOptional,
+  IsPositive,
+  IsString,
+  IsUUID,
+  Matches,
+} from 'class-validator';
 
 export class ResponderSolicitudJefeDto {
   @ApiProperty({ example: 'a0fd92e2-82cd-4781-af3a-7e6e1879e72a' })
@@ -25,15 +35,28 @@ export class ResponderSolicitudJefeDto {
   @ApiProperty({ example: 1 })
   @IsInt()
   @IsPositive()
-  idmodulo!: number;
+  modulo!: number;
+
+  @ApiPropertyOptional({ example: 1, deprecated: true })
+  @IsInt()
+  @IsPositive()
+  @IsOptional()
+  idmodulo?: number;
 
   @ApiPropertyOptional({ example: 'Motivo del rechazo', nullable: true })
   @IsString()
   @IsOptional()
   motRechazo?: string | null;
 
-  @ApiProperty({ example: '01:00', description: 'Horas aprobadas. Usar 00:00 para permisos oficiales.' })
+  @ApiPropertyOptional({
+    example: '02:00:00',
+    nullable: true,
+    description: 'Solo requerido cuando se rechaza un permiso personal para devolver horas.',
+  })
   @IsString()
-  @IsNotEmpty()
-  horas!: string;
+  @Matches(/^([01]\d|2[0-3]):[0-5]\d(:[0-5]\d)?$/, {
+    message: 'horas debe tener formato HH:MM o HH:MM:SS',
+  })
+  @IsOptional()
+  horas?: string | null;
 }

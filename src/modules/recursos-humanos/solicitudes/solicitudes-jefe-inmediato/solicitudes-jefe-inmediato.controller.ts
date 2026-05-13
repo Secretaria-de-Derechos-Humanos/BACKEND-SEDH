@@ -19,7 +19,7 @@ export class SolicitudesJefeInmediatoController {
     return this.solicitudesJefeInmediatoService.cargarDatosAprobarJefeInmediato(
       body.email,
       body.rol,
-      body.idmodulo,
+      body.modulo ?? body.idmodulo,
     );
   }
 
