@@ -18,7 +18,11 @@ export class SolicitudesSubgerenteRrhhController {
   @ApiOperation({ summary: 'Cargar solicitudes pendientes por aprobar de la subgerente RRHH' })
   @ApiBody({ type: CargarPendientesSubgerenteDto })
   cargarPendientes(@Body() body: CargarPendientesSubgerenteDto) {
-    return this.solicitudesSubgerenteRrhhService.cargarPendientes(body);
+    return this.solicitudesSubgerenteRrhhService.cargarPendientes(
+      body.email,
+      body.rol,
+      body.modulo ?? body.idmodulo,
+    );
   }
 
   @Post('responder')

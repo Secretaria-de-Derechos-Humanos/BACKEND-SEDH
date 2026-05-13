@@ -1,5 +1,6 @@
-import { ApiProperty } from '@nestjs/swagger';
-import { IsEmail, IsInt, IsNotEmpty, IsPositive } from 'class-validator';
+import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
+import { Type } from 'class-transformer';
+import { IsEmail, IsInt, IsNotEmpty, IsOptional, IsPositive } from 'class-validator';
 
 export class CargarPendientesSubgerenteDto {
   @ApiProperty({ example: 'katia.pinto@sedh.gob.hn' })
@@ -8,12 +9,22 @@ export class CargarPendientesSubgerenteDto {
   email!: string;
 
   @ApiProperty({ example: 3 })
+  @Type(() => Number)
   @IsInt()
   @IsPositive()
   rol!: number;
 
-  @ApiProperty({ example: 1 })
+  @ApiPropertyOptional({ example: 1 })
+  @Type(() => Number)
   @IsInt()
   @IsPositive()
-  idmodulo!: number;
+  @IsOptional()
+  modulo?: number;
+
+  @ApiPropertyOptional({ example: 1, deprecated: true })
+  @Type(() => Number)
+  @IsInt()
+  @IsPositive()
+  @IsOptional()
+  idmodulo?: number;
 }

@@ -1,4 +1,5 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
+import { Type } from 'class-transformer';
 import {
   IsEmail,
   IsIn,
@@ -28,16 +29,20 @@ export class ResponderSolicitudJefeDto {
   email!: string;
 
   @ApiProperty({ example: 2 })
+  @Type(() => Number)
   @IsInt()
   @IsPositive()
   rol!: number;
 
-  @ApiProperty({ example: 1 })
+  @ApiPropertyOptional({ example: 1 })
+  @Type(() => Number)
   @IsInt()
   @IsPositive()
-  modulo!: number;
+  @IsOptional()
+  modulo?: number;
 
   @ApiPropertyOptional({ example: 1, deprecated: true })
+  @Type(() => Number)
   @IsInt()
   @IsPositive()
   @IsOptional()
