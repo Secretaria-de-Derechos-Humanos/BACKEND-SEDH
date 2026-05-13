@@ -104,7 +104,7 @@ JWT_ACCESS_EXPIRATION=15m
 NODE_ENV=development
 PORT=3000
 API_PREFIX=api/v1
-CORS_ORIGINS=http://localhost:4200
+CORS_ORIGINS=http://localhost:4200,https://qa.sedh.gob.hn
 
 # Seguridad
 SESSION_SECRET=genera-un-string-aleatorio-largo
@@ -204,11 +204,17 @@ El backend corre en producción bajo **IIS como reverse proxy HTTPS → PM2 → 
 ### Subir cambios a producción
 
 ```bash
-# 1. Compilar el proyecto
+# 1. detener el backend
+pm2 stop sedh-backend
+
+# 2. construir el backend
 npm run build
 
-# 2. Recargar el proceso (sin downtime)
-pm2 restart sedh-backend
+# 3. Recargar el proceso (sin downtime)
+pm2 restart sedh-backend --update-env
+
+# 4. Guardar cambios
+pm2 save
 ```
 
 > No es necesario reiniciar IIS. IIS solo actúa como túnel HTTPS y no ejecuta código Node.js.
@@ -222,6 +228,8 @@ pm2 restart sedh-backend     # Reiniciar el proceso
 pm2 stop sedh-backend        # Detener el proceso
 pm2 save                     # Guardar lista de procesos (persiste tras reinicio)
 ```
+
+
 
 ### Infraestructura del servidor
 

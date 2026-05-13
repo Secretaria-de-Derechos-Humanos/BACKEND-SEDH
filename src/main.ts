@@ -3,7 +3,7 @@ import { ValidationPipe } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import helmet from 'helmet';
-import * as cookieParser from 'cookie-parser';
+import cookieParser = require('cookie-parser');
 import { AppModule } from './app.module';
 import { HttpExceptionFilter } from './shared/filters/http-exception.filter';
 import { ResponseInterceptor } from './shared/interceptors/response.interceptor';
@@ -18,7 +18,11 @@ async function bootstrap() {
 
 
   // ── CORS ─────────────────────────────────────────────────────────────────
-  const allowedOrigins = config.get<string>('CORS_ORIGINS', '').split(',');
+  const allowedOrigins = config
+    .get<string>('CORS_ORIGINS', '')
+    .split(',')
+    .map((origen) => origen.trim())
+    .filter(Boolean);
   app.enableCors({
     origin: allowedOrigins,
     methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
