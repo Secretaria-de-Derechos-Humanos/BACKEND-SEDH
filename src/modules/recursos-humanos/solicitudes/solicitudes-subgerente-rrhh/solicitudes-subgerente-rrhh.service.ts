@@ -25,6 +25,8 @@ export class SolicitudesSubgerenteRrhhService {
         rol: Number(resultado?.rol ?? rol),
         subgerente: resultado?.subgerente ?? email,
         modulo: Number(resultado?.modulo ?? resultado?.idmodulo ?? modulo),
+        status: resultado?.status ?? 'OK',
+        pendientesRRHH: pendientes,
         pendientes,
       };
     } catch (error) {
@@ -70,7 +72,7 @@ export class SolicitudesSubgerenteRrhhService {
     }
 
     const data = resultado as Record<string, unknown>;
-    const pendientesDirectos = data.pendientes;
+    const pendientesDirectos = data.pendientes ?? data.pendientesRRHH;
 
     if (Array.isArray(pendientesDirectos)) {
       return pendientesDirectos as Record<string, unknown>[];
