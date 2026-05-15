@@ -7,6 +7,7 @@ import { EmpleadosService } from './empleados.service';
 import { BuscarEmpleadoAdminDto } from './dto/buscar-empleado-admin.dto';
 import { ActualizarEmpleadoAdminDto } from './dto/actualizar-empleado-admin.dto';
 import { CrearEmpleadoAdminDto } from './dto/crear-empleado-admin.dto';
+import { ActualizarHorasDisponiblesDto } from './dto/actualizar-horas-disponibles.dto';
 
 @ApiTags('Empleados')
 @ApiBearerAuth()
@@ -59,5 +60,19 @@ export class EmpleadosController {
       empleado: dto.empleado,
       accesosSistema: dto.accesosSistema,
     });
+  }
+
+  @Post('actualizar-horas-disponibles')
+  @ApiOperation({ summary: 'Actualizar horas disponibles de un empleado (administrador RRHH)' })
+  @ApiBody({ type: ActualizarHorasDisponiblesDto })
+  @RequiereModulo(1)
+  actualizarHorasDisponibles(@Body() dto: ActualizarHorasDisponiblesDto) {
+    return this.empleadosService.actualizarHorasDisponibles(
+      dto.emailEmpleado,
+      dto.horasDisponibles,
+      dto.email,
+      dto.rol,
+      dto.idmodulo,
+    );
   }
 }

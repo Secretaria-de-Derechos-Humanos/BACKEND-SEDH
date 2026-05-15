@@ -125,4 +125,23 @@ export class EmpleadosService {
       throw new InternalServerErrorException(`DB Error: ${(error as Error).message}`);
     }
   }
+
+  async actualizarHorasDisponibles(
+    emailEmpleado: string,
+    horasDisponibles: string,
+    emailAdmin: string,
+    rol: number,
+    idmodulo: number,
+  ) {
+    try {
+      const rows = await this.dataSource.query(
+        'SELECT rrhh.actualizar_horas_disponibles_empleado($1, $2, $3, $4, $5)',
+        [emailEmpleado, horasDisponibles, emailAdmin, String(rol), String(idmodulo)],
+      );
+      return rows[0]?.actualizar_horas_disponibles_empleado ?? null;
+    } catch (error) {
+      this.logger.error(`Error en actualizarHorasDisponibles: ${error}`);
+      throw new InternalServerErrorException(`DB Error: ${(error as Error).message}`);
+    }
+  }
 }
