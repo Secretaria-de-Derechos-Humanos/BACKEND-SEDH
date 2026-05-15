@@ -38,6 +38,7 @@ async function bootstrap() {
   app.use(helmet());
   app.use(cookieParser());
 
+
   // ── CORS ─────────────────────────────────────────────────────────────────
   const originsConfig = config
     .get<string>('CORS_ORIGINS', '')
@@ -50,9 +51,11 @@ async function bootstrap() {
     .filter((origen) => origen !== '*')
     .map((origen) => construirPatronOrigen(origen));
 
-  const originsParaLog = allowedOrigins.map((origenConfig) => {
-    return origenConfig instanceof RegExp ? origenConfig.toString() : origenConfig;
-  });
+  const originsParaLog = allowedOrigins.map((origenConfig) => (
+    origenConfig instanceof RegExp
+      ? origenConfig.toString()
+      : origenConfig
+  ));
 
   console.log(`[CORS] Origenes permitidos: ${originsParaLog.join(', ') || '(ninguno)'}`);
 
@@ -72,7 +75,10 @@ async function bootstrap() {
         return origenConfig === origenNormalizado;
       });
 
-      if (permitirCualquierOrigen || origenPermitido) {
+      if (
+        permitirCualquierOrigen
+        || origenPermitido
+      ) {
         return callback(null, true);
       }
 
@@ -106,7 +112,10 @@ async function bootstrap() {
     .setTitle('SEDH API')
     .setDescription('Sistema Web Institucional Integrado — Secretaría de Derechos Humanos')
     .setVersion('1.0')
-    .addBearerAuth({ type: 'http', scheme: 'bearer', bearerFormat: 'JWT' }, 'access-token')
+    .addBearerAuth(
+      { type: 'http', scheme: 'bearer', bearerFormat: 'JWT' },
+      'access-token',
+    )
     .build();
 
   const document = SwaggerModule.createDocument(app, swaggerConfig);

@@ -12,6 +12,7 @@ export interface ApiResponse<T> {
   data: T | null;
   message: string;
   timestamp: string;
+  accessToken?: string;
 }
 
 function getHondurasTimestamp(): string {
@@ -24,12 +25,22 @@ function getHondurasTimestamp(): string {
 export class ResponseInterceptor<T> implements NestInterceptor<T, ApiResponse<T>> {
   intercept(context: ExecutionContext, next: CallHandler<T>): Observable<ApiResponse<T>> {
     return next.handle().pipe(
-      map((data) => ({
-        success: true,
-        data: data ?? null,
-        message: (data as any)?.message ?? 'Operación exitosa',
-        timestamp: getHondurasTimestamp(),
-      })),
+      map((data) => {
+        const respuesta: ApiResponse<T> = {
+          success: true,
+          data: data ?? null,
+          message: (data as any)?.message ?? 'Operación exitosa',
+          timestamp: getHondurasTimestamp(),
+        };
+
+        // Compatibilidad hacia atras: algunos clientes leen accessToken en la raiz.
+        const posibleAccessToken = (data as any)?.accessToken;
+        if (typeof posibleAccessToken === 'string' && posibleAccessToken.length > 0) {
+          respuesta.accessToken = posibleAccessToken;
+        }
+
+        return respuesta;
+      }),
     );
   }
 }

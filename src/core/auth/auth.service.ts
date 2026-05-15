@@ -230,9 +230,8 @@ export class AuthService {
       },
     );
 
-    // Guardar hash del refresh token en BD (expira en 10 minutos — pruebas)
-    const expiracion = new Date();
-    expiracion.setMinutes(expiracion.getMinutes() + 10);
+    // Guardar hash del refresh token en BD usando la misma ventana de expiracion del JWT.
+    const expiracion = this.calcularExpiracionRefresh();
 
     await this.refreshRepo.save(
       this.refreshRepo.create({
@@ -252,6 +251,40 @@ export class AuthService {
 
   private hashToken(token: string): string {
     return crypto.createHash('sha256').update(token).digest('hex');
+  }
+
+  private calcularExpiracionRefresh(): Date {
+    const valor = this.config.get<string>('jwt.refreshExpiration', '7d').trim();
+    const ahora = new Date();
+    const match = /^(\d+)\s*([smhd])$/i.exec(valor);
+
+    if (!match) {
+      const fallback = new Date(ahora);
+      fallback.setDate(fallback.getDate() + 7);
+      return fallback;
+    }
+
+    const cantidad = Number(match[1]);
+    const unidad = match[2].toLowerCase();
+    const expiracion = new Date(ahora);
+
+    if (unidad === 's') {
+      expiracion.setSeconds(expiracion.getSeconds() + cantidad);
+      return expiracion;
+    }
+
+    if (unidad === 'm') {
+      expiracion.setMinutes(expiracion.getMinutes() + cantidad);
+      return expiracion;
+    }
+
+    if (unidad === 'h') {
+      expiracion.setHours(expiracion.getHours() + cantidad);
+      return expiracion;
+    }
+
+    expiracion.setDate(expiracion.getDate() + cantidad);
+    return expiracion;
   }
 
   private async obtenerDatosParaRefresh(email: string): Promise<LoginFnResult> {
