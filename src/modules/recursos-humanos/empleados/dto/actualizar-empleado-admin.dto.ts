@@ -77,12 +77,18 @@ class AccesoSistemaDto {
 }
 
 export class ActualizarEmpleadoAdminDto {
-  @ApiProperty({ example: 'luis.cardona@sedh.gob.hn', description: 'Email del empleado a actualizar' })
+  @ApiProperty({
+    example: 'luis.cardona@sedh.gob.hn',
+    description: 'Email del empleado a actualizar',
+  })
   @IsEmail()
   @IsNotEmpty()
   emailEmpleado!: string;
 
-  @ApiProperty({ example: 'issis.caceres@sedh.gob.hn', description: 'Email del administrador RRHH' })
+  @ApiProperty({
+    example: 'issis.caceres@sedh.gob.hn',
+    description: 'Email del administrador RRHH',
+  })
   @IsEmail()
   @IsNotEmpty()
   email!: string;

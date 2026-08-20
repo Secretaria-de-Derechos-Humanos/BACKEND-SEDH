@@ -15,9 +15,15 @@ import { TipoSolicitudEmpleado } from './entities/tipo-solicitud-empleado.entity
 @Module({
   imports: [
     TypeOrmModule.forFeature([
-      Cargo, Dependencia, Departamento, Municipio,
-      Sexo, EstadoCivil, TipoContratacion,
-      EstadoSolicitud, TipoSolicitudEmpleado,
+      Cargo,
+      Dependencia,
+      Departamento,
+      Municipio,
+      Sexo,
+      EstadoCivil,
+      TipoContratacion,
+      EstadoSolicitud,
+      TipoSolicitudEmpleado,
     ]),
   ],
   controllers: [CatalogosController],

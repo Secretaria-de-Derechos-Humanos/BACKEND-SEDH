@@ -49,10 +49,7 @@ export class AuthController {
   @HttpCode(HttpStatus.OK)
   @Throttle({ default: { ttl: 60, limit: 5 } })
   @ApiOperation({ summary: 'Iniciar sesion' })
-  async login(
-    @Body() dto: LoginDto,
-    @Res({ passthrough: true }) res: Response,
-  ) {
+  async login(@Body() dto: LoginDto, @Res({ passthrough: true }) res: Response) {
     const { accessToken, refreshToken } = await this.authService.login(dto);
     this.setCookieRefresh(res, refreshToken);
     return { accessToken };
@@ -62,10 +59,7 @@ export class AuthController {
   @HttpCode(HttpStatus.OK)
   @Throttle({ default: { ttl: 60, limit: 10 } })
   @ApiOperation({ summary: 'Renovar access token (refresh token en cookie HttpOnly)' })
-  async refresh(
-    @Req() req: Request,
-    @Res({ passthrough: true }) res: Response,
-  ) {
+  async refresh(@Req() req: Request, @Res({ passthrough: true }) res: Response) {
     const token: string | undefined = req.cookies?.[COOKIE_NAME];
     if (!token) {
       throw new UnauthorizedException('Refresh token no encontrado');

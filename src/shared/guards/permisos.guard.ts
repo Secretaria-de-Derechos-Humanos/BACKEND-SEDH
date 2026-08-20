@@ -1,9 +1,4 @@
-import {
-  Injectable,
-  CanActivate,
-  ExecutionContext,
-  ForbiddenException,
-} from '@nestjs/common';
+import { Injectable, CanActivate, ExecutionContext, ForbiddenException } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
 import { MODULOS_KEY } from '../decorators/requiere-permiso.decorator';
 import { JwtPayload } from '../../core/auth/strategies/jwt.strategy';

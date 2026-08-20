@@ -2,12 +2,18 @@ import { ApiProperty } from '@nestjs/swagger';
 import { IsEmail, IsInt, IsNotEmpty, IsPositive, IsString, Matches } from 'class-validator';
 
 export class ActualizarHorasDisponiblesDto {
-  @ApiProperty({ example: 'luis.cardona@sedh.gob.hn', description: 'Email del empleado a actualizar' })
+  @ApiProperty({
+    example: 'luis.cardona@sedh.gob.hn',
+    description: 'Email del empleado a actualizar',
+  })
   @IsEmail()
   @IsNotEmpty()
   emailEmpleado!: string;
 
-  @ApiProperty({ example: '07:30:00', description: 'Horas disponibles del empleado en formato HH:mm:ss' })
+  @ApiProperty({
+    example: '07:30:00',
+    description: 'Horas disponibles del empleado en formato HH:mm:ss',
+  })
   @IsString()
   @IsNotEmpty()
   @Matches(/^([01]\d|2[0-3]):[0-5]\d:[0-5]\d$/, {
@@ -15,7 +21,10 @@ export class ActualizarHorasDisponiblesDto {
   })
   horasDisponibles!: string;
 
-  @ApiProperty({ example: 'issis.caceres@sedh.gob.hn', description: 'Email del administrador RRHH' })
+  @ApiProperty({
+    example: 'issis.caceres@sedh.gob.hn',
+    description: 'Email del administrador RRHH',
+  })
   @IsEmail()
   @IsNotEmpty()
   email!: string;

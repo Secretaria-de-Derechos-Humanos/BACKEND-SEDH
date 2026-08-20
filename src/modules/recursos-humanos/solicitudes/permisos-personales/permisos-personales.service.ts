@@ -1,35 +1,420 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  HttpException,
+  Injectable,
+  InternalServerErrorException,
+  Logger,
+  NotFoundException,
+} from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { DataSource, Repository } from 'typeorm';
-import { PermisoPersonal } from './entities/permiso-personal.entity';
 import { InsertarPermisoPersonalDto } from './dto/insertar-permiso-personal.dto';
+import { PermisoPersonal } from './entities/permiso-personal.entity';
+
+interface DisponibilidadRow {
+  hordisponibles: string | null;
+  consumidodia: number | string | null;
+  consumidomes: number | string | null;
+}
+export interface ResultadoPermisoPersonal {
+  status?: string;
+  message?: string;
+  detalle?: string;
+  [key: string]: unknown;
+}
+
+interface ResultadoFuncionRow {
+  resultado: ResultadoPermisoPersonal | null;
+}
 
 @Injectable()
 export class PermisosPersonalesService {
+  private readonly logger = new Logger(PermisosPersonalesService.name);
+
   constructor(
-    @InjectRepository(PermisoPersonal) private readonly repo: Repository<PermisoPersonal>,
+    @InjectRepository(PermisoPersonal)
+    private readonly repo: Repository<PermisoPersonal>,
+
     private readonly dataSource: DataSource,
   ) {}
 
-  findAll() {
-    return this.repo.find();
+  findAll(): Promise<PermisoPersonal[]> {
+    return this.repo.find({
+      order: {
+        fecSolicitud: 'DESC',
+      },
+    });
+  }
+  findByEmpleado(email: string): Promise<PermisoPersonal[]> {
+    return this.repo.find({
+      where: {
+        emailInstitucional: email,
+      },
+      order: {
+        fecSolicitud: 'DESC',
+      },
+    });
   }
 
-  findByEmpleado(email: string) {
-    return this.repo.find({ where: { emailInstitucional: email } });
-  }
+  async findOne(id: string): Promise<PermisoPersonal> {
+    const permiso = await this.repo.findOne({
+      where: {
+        idPermisoPersonal: id,
+      },
+    });
 
-  async findOne(id: string) {
-    const permiso = await this.repo.findOne({ where: { idPermisoPersonal: id } });
-    if (!permiso) throw new NotFoundException(`Permiso personal ${id} no encontrado`);
+    if (!permiso) {
+      throw new NotFoundException(`Permiso personal ${id} no encontrado`);
+    }
+
     return permiso;
   }
 
-  async insertarPermisoPersonal(dto: InsertarPermisoPersonalDto) {
+  async insertarPermisoPersonal(
+    dto: InsertarPermisoPersonalDto,
+    email: string,
+  ): Promise<ResultadoPermisoPersonal> {
+    try {
+      const rows = (await this.dataSource.query(
+        `
+        SELECT rrhh.insertar_permiso_personal(
+          $1::character varying,
+          $2::date,
+          $3::time without time zone,
+          $4::character varying,
+          $5::boolean
+        ) AS resultado
+        `,
+        [email, dto.fecha, dto.horas, dto.motivo.trim(), dto.emergencia],
+      )) as ResultadoFuncionRow[];
+
+      const resultado = rows[0]?.resultado;
+
+      if (!resultado) {
+        throw new InternalServerErrorException('La función no devolvió ningún resultado');
+      }
+
+      if (String(resultado.status).toUpperCase() !== 'OK') {
+        throw new BadRequestException(
+          resultado.message ?? 'No se pudo registrar el permiso personal',
+        );
+      }
+
+      return resultado;
+    } catch (error: unknown) {
+      this.logger.error(
+        'Error en insertarPermisoPersonal',
+        error instanceof Error ? error.stack : String(error),
+      );
+
+      if (error instanceof HttpException) {
+        throw error;
+      }
+
+      throw new InternalServerErrorException('No se pudo registrar el permiso personal');
+    }
+  }
+  async consultarDisponibilidad(email: string, fecha: string) {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(fecha)) {
+      throw new BadRequestException('La fecha debe tener el formato YYYY-MM-DD');
+    }
+
+    const rows = (await this.dataSource.query(
+      `
+    WITH consumos AS (
+      SELECT
+        pp.fecsolicitud,
+
+        CASE
+          WHEN UPPER(TRIM(es.nomestado)) = 'RECHAZADO'
+            THEN 0
+
+          WHEN pp.horsalida IS NOT NULL
+               AND pp.horretorno IS NOT NULL
+            THEN GREATEST(
+              EXTRACT(
+                EPOCH FROM (
+                  pp.horretorno -
+                  pp.horsalida
+                )
+              ) / 60,
+              0
+            )
+
+          ELSE
+            EXTRACT(
+              EPOCH FROM pp.horsolicitadas
+            ) / 60
+        END AS minutos_consumidos
+
+      FROM rrhh.permisos_personales pp
+
+      INNER JOIN rrhh.estados_solicitudes es
+        ON es.idestadosolicitud =
+           pp.idestadosolicitud
+
+      WHERE LOWER(TRIM(pp.emailinstitucional)) =
+            LOWER(TRIM($1))
+
+        AND EXTRACT(
+              YEAR FROM pp.fecsolicitud
+            ) =
+            EXTRACT(
+              YEAR FROM $2::date
+            )
+
+        AND EXTRACT(
+              MONTH FROM pp.fecsolicitud
+            ) =
+            EXTRACT(
+              MONTH FROM $2::date
+            )
+    )
+
+    SELECT
+      (
+        SELECT hd.hordisponibles::text
+        FROM rrhh.horas_disponibles hd
+        WHERE LOWER(TRIM(hd.emailinstitucional)) =
+              LOWER(TRIM($1))
+        LIMIT 1
+      ) AS hordisponibles,
+
+      COALESCE(
+        SUM(minutos_consumidos)
+          FILTER (
+            WHERE fecsolicitud = $2::date
+          ),
+        0
+      ) AS consumidodia,
+
+      COALESCE(
+        SUM(minutos_consumidos),
+        0
+      ) AS consumidomes
+
+    FROM consumos
+    `,
+      [email, fecha],
+    )) as DisponibilidadRow[];
+
+    const consumidoDia = Math.round(Number(rows[0]?.consumidodia ?? 0));
+    const consumidoMes = Math.round(Number(rows[0]?.consumidomes ?? 0));
+    const disponibleDia = Math.max(0, 180 - consumidoDia);
+    const disponibleMes = Math.max(0, 540 - consumidoMes);
+
+    return {
+      fecha,
+      limiteDiarioMinutos: 180,
+      consumidoDiaMinutos: consumidoDia,
+      disponibleDiaMinutos: disponibleDia,
+
+      limiteMensualMinutos: 540,
+      consumidoMesMinutos: consumidoMes,
+      disponibleMesMinutos: disponibleMes,
+
+      horasDisponibles: rows[0]?.hordisponibles ?? '00:00:00',
+    };
+  }
+  async listarSolicitudesAgente() {
     const rows = await this.dataSource.query(
-      'SELECT rrhh.insertar_permiso_personal($1, $2, $3, $4, $5)',
-      [dto.email, dto.fecha, dto.horas, dto.motivo, dto.emergencia],
+      `
+    SELECT
+      pp.idpermisopersonal AS "idPermiso",
+      pp.emailinstitucional AS "emailInstitucional",
+      pp.fecsolicitud AS fecha,
+      pp.horsolicitadas::text AS "horasSolicitadas",
+      pp.horsalida::text AS "horaSalida",
+      pp.horretorno::text AS "horaRetorno",
+      pp.motivo,
+
+      CONCAT_WS(
+        ' ',
+        e.prinombre,
+        e.segnombre,
+        e.priapellido,
+        e.segapellido
+      ) AS empleado,
+
+      c.nomcargo AS cargo,
+
+      d.nomdependencia AS dependencia
+
+    FROM rrhh.permisos_personales pp
+
+    INNER JOIN rrhh.estados_solicitudes es
+      ON es.idestadosolicitud =
+         pp.idestadosolicitud
+
+    INNER JOIN rrhh.empleados e
+      ON LOWER(TRIM(e.emailinstitucional)) =
+         LOWER(TRIM(pp.emailinstitucional))
+
+    LEFT JOIN rrhh.cargos c
+      ON c.idcargo = e.idcargo
+
+    LEFT JOIN rrhh.dependencias d
+      ON d.iddependencia =
+         c.iddependencia
+
+    WHERE UPPER(TRIM(es.nomestado)) =
+          'APROBADO'
+
+      AND pp.fecsolicitud =
+          CURRENT_DATE
+
+    ORDER BY
+      pp.fecsolicitud ASC,
+      empleado ASC
+    `,
     );
-    return rows[0]?.insertar_permiso_personal ?? null;
+
+    return {
+      status: 'OK',
+      solicitudesAgente: rows,
+    };
+  }
+  async registrarHoraSalida(idPermiso: string, horaSalida: string, emailAgente: string) {
+    const rows = await this.dataSource.query(
+      `
+    UPDATE rrhh.permisos_personales
+    SET
+      horsalida = $2::time,
+      guardiaturno = $3,
+      actualizadoen = CURRENT_DATE,
+      actualizadopor = $3
+    WHERE idpermisopersonal = $1::uuid
+      AND horsalida IS NULL
+      AND horretorno IS NULL
+    RETURNING
+      idpermisopersonal,
+      horsalida
+    `,
+      [idPermiso, horaSalida, emailAgente],
+    );
+
+    if (!rows?.length) {
+      throw new BadRequestException(
+        'No se pudo registrar la salida. Puede que ya haya sido registrada.',
+      );
+    }
+
+    return {
+      status: 'OK',
+      mensaje: 'Hora de salida registrada correctamente',
+      idPermiso,
+      horaSalida: rows[0].horsalida,
+    };
+  }
+  async registrarHoraRetorno(idPermiso: string, horaRetorno: string, emailAgente: string) {
+    return this.dataSource.transaction(async (manager) => {
+      const permisos = await manager.query(
+        `
+          SELECT
+            idpermisopersonal,
+            emailinstitucional,
+            horsolicitadas,
+            horsalida,
+            horretorno
+          FROM rrhh.permisos_personales
+          WHERE idpermisopersonal =
+                $1::uuid
+          FOR UPDATE
+          `,
+        [idPermiso],
+      );
+
+      const permiso = permisos?.[0];
+
+      if (!permiso) {
+        throw new NotFoundException('Permiso personal no encontrado');
+      }
+
+      if (!permiso.horsalida) {
+        throw new BadRequestException('Debe registrar primero la hora de salida');
+      }
+
+      if (permiso.horretorno) {
+        throw new BadRequestException('La hora de retorno ya fue registrada');
+      }
+
+      const calculo = await manager.query(
+        `
+          SELECT
+            GREATEST(
+              EXTRACT(
+                EPOCH FROM (
+                  $1::time -
+                  $2::time
+                )
+              ) / 60,
+              0
+            )::integer AS minutos_reales,
+
+            (
+              EXTRACT(
+                EPOCH FROM $3::time
+              ) / 60
+            )::integer AS minutos_solicitados
+          `,
+        [horaRetorno, permiso.horsalida, permiso.horsolicitadas],
+      );
+
+      const minutosReales = Number(calculo[0]?.minutos_reales ?? 0);
+
+      const minutosSolicitados = Number(calculo[0]?.minutos_solicitados ?? 0);
+
+      if (minutosReales <= 0) {
+        throw new BadRequestException('La hora de retorno debe ser posterior a la hora de salida');
+      }
+
+      const minutosADevolver = Math.max(0, minutosSolicitados - minutosReales);
+
+      await manager.query(
+        `
+        UPDATE rrhh.permisos_personales
+        SET
+          horretorno = $2::time,
+          guardiaturno = $3,
+          actualizadoen = CURRENT_DATE,
+          actualizadopor = $3
+        WHERE idpermisopersonal =
+              $1::uuid
+        `,
+        [idPermiso, horaRetorno, emailAgente],
+      );
+
+      if (minutosADevolver > 0) {
+        await manager.query(
+          `
+          UPDATE rrhh.horas_disponibles
+          SET
+            hordisponibles =
+              hordisponibles +
+              ($2 || ' minutes')::interval,
+            actualizadoen =
+              CURRENT_DATE,
+            actualizadopor =
+              $3
+          WHERE LOWER(
+                  TRIM(
+                    emailinstitucional
+                  )
+                ) =
+                LOWER(TRIM($1))
+          `,
+          [permiso.emailinstitucional, minutosADevolver, emailAgente],
+        );
+      }
+
+      return {
+        status: 'OK',
+        mensaje: 'Hora de retorno registrada correctamente',
+        idPermiso,
+        minutosSolicitados,
+        minutosReales,
+        minutosDevueltos: minutosADevolver,
+      };
+    });
   }
 }

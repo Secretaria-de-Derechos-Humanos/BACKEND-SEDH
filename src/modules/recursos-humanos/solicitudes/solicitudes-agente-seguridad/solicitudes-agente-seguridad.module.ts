@@ -1,10 +1,10 @@
 import { Module } from '@nestjs/common';
-import { SolicitudesAgenteSeguriadController } from './solicitudes-agente-seguridad.controller';
-import { SolicitudesAgenteSeguriadService } from './solicitudes-agente-seguridad.service';
+import { SolicitudesAgenteSeguridadController } from './solicitudes-agente-seguridad.controller';
+import { SolicitudesAgenteSeguridadService } from './solicitudes-agente-seguridad.service';
 
 @Module({
-  controllers: [SolicitudesAgenteSeguriadController],
-  providers: [SolicitudesAgenteSeguriadService],
-  exports: [SolicitudesAgenteSeguriadService],
+  controllers: [SolicitudesAgenteSeguridadController],
+  providers: [SolicitudesAgenteSeguridadService],
+  exports: [SolicitudesAgenteSeguridadService],
 })
-export class SolicitudesAgenteSeguriadModule {}
+export class SolicitudesAgenteSeguridadModule {}

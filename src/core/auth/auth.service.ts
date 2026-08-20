@@ -27,7 +27,12 @@ export interface InstitucionInfo {
 
 export interface LoginFnResult {
   status: string;
-  usuario: { id: string; email: string; telefono: string };
+  usuario: {
+    id: string;
+    email: string;
+    telefono: string;
+    debeCambiarPassword: boolean;
+  };
   institucionalInfo: InstitucionInfo;
   roles: RolLogin[];
 }
@@ -41,6 +46,7 @@ interface UsuarioRefreshRow {
   idusuario: string;
   emailinstitucional: string;
   activo: boolean | null;
+  debecambiarpassword: boolean | null;
   numtelefono: string | null;
   prinombre: string | null;
   priapellido: string | null;
@@ -78,13 +84,10 @@ export class AuthService {
       this.logger.error('Error al llamar core.login():', err);
       throw new InternalServerErrorException();
     }
-
     const datos: LoginFnResult = result[0]?.resultado;
-
     if (!datos || datos.status !== 'OK') {
       throw new UnauthorizedException('Credenciales inválidas');
     }
-
     try {
       return await this.emitirTokens(datos);
     } catch (err) {
@@ -92,8 +95,6 @@ export class AuthService {
       throw new InternalServerErrorException();
     }
   }
-
-  // ── Refresh ────────────────────────────────────────────────────────────────
   async refresh(refreshTokenRaw: string): Promise<TokensResponse> {
     try {
       let payload: { sub: string; jti: string; tipo: string };
@@ -208,6 +209,7 @@ export class AuthService {
         dependencia: datos.institucionalInfo.dependencia,
         fechaIngreso: datos.institucionalInfo.fechaIngreso,
         roles: datos.roles,
+        debeCambiarPassword: datos.usuario.debeCambiarPassword === true,
         tipo: 'access',
         jti: jtiAccess,
       },
@@ -294,6 +296,7 @@ export class AuthService {
         u.idusuario,
         u.emailinstitucional,
         u.activo,
+        u.debecambiarpassword,
         e.numtelefono,
         e.prinombre,
         e.priapellido,
@@ -338,6 +341,7 @@ export class AuthService {
         id: usuario.idusuario,
         email: usuario.emailinstitucional,
         telefono: usuario.numtelefono ?? '',
+        debeCambiarPassword: usuario.debecambiarpassword === true,
       },
       institucionalInfo: {
         nombre: usuario.prinombre ?? '',

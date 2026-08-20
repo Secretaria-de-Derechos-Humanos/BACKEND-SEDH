@@ -1,5 +1,12 @@
-import { BadRequestException, Injectable, InternalServerErrorException, Logger } from '@nestjs/common';
+import {
+  BadRequestException,
+  HttpException,
+  Injectable,
+  InternalServerErrorException,
+  Logger,
+} from '@nestjs/common';
 import { DataSource } from 'typeorm';
+
 import { ResponderSolicitudJefeDto } from './dto/responder-solicitud-jefe.dto';
 
 @Injectable()
@@ -8,67 +15,77 @@ export class SolicitudesJefeInmediatoService {
 
   constructor(private readonly dataSource: DataSource) {}
 
-  async cargarDatosAprobarJefeInmediato(email: string, rol: number, modulo?: number) {
-    if (!modulo) {
-      throw new BadRequestException('El campo modulo es obligatorio');
-    }
-
+  async cargarDatosAprobarJefeInmediato(email: string, rol: number, modulo: number) {
     try {
       const rows = await this.dataSource.query(
-        'SELECT * FROM rrhh.cargar_datos_aprobar_jefe_inmediato($1, $2, $3)',
-        [email, String(rol), String(modulo)],
+        `
+        SELECT rrhh.cargar_datos_aprobar_jefe_inmediato(
+          $1::character varying,
+          $2::smallint,
+          $3::smallint
+        ) AS resultado
+        `,
+        [email, Number(rol), Number(modulo)],
       );
-      const resultado = rows[0]?.cargar_datos_aprobar_jefe_inmediato;
+
+      const resultado = rows[0]?.resultado;
       const pendientes = this.normalizarPendientes(resultado);
 
       return {
+        status: resultado?.status ?? 'OK',
         rol: Number(resultado?.rol ?? rol),
         jefe: resultado?.jefe ?? email,
         modulo: Number(resultado?.modulo ?? resultado?.idmodulo ?? modulo),
         pendientes,
       };
     } catch (error) {
-      this.logger.error(`Error en cargarDatosAprobarJefeInmediato: ${error}`);
-      throw new InternalServerErrorException(`DB Error: ${(error as Error).message}`);
+      this.manejarError(
+        'cargarDatosAprobarJefeInmediato',
+        error,
+        'No se pudieron cargar las solicitudes pendientes',
+      );
     }
   }
 
-  async responderSolicitud(dto: ResponderSolicitudJefeDto) {
-    const modulo = dto.modulo ?? dto.idmodulo;
-    if (!modulo) {
-      throw new BadRequestException('El campo modulo es obligatorio');
-    }
+  async responderSolicitud(dto: ResponderSolicitudJefeDto, email: string, rol: number) {
+    const motivoLimpio = dto.motRechazo?.trim();
+    const esRechazo = Boolean(motivoLimpio);
 
-    const esRechazo = Boolean(dto.motRechazo && dto.motRechazo.trim().length > 0);
-    const motRechazo = esRechazo ? dto.motRechazo!.trim() : null;
+    const motivoRechazo = esRechazo ? motivoLimpio! : null;
 
     let horas: string | null = null;
+
     if (esRechazo && dto.tipo === 'PERMISO PERSONAL') {
-      if (!dto.horas) {
+      const horasLimpias = dto.horas?.trim();
+
+      if (!horasLimpias) {
         throw new BadRequestException(
           'El campo horas es obligatorio al rechazar un PERMISO PERSONAL',
         );
       }
-      horas = dto.horas;
+
+      horas = horasLimpias;
     }
 
     try {
       const rows = await this.dataSource.query(
-        'SELECT rrhh.responder_solicitudes_jefe_i($1, $2, $3, $4, $5, $6, $7)',
-        [
-          dto.idpermiso,
-          dto.tipo,
-          dto.email,
-          String(dto.rol),
-          String(modulo),
-          motRechazo,
-          horas,
-        ],
+        `
+  SELECT rrhh.responder_solicitudes_jefe_i(
+    $1::uuid,
+    $2::character varying,
+    $3::character varying,
+    $4::smallint,
+    $5::smallint,
+    $6::character varying,
+    $7::time
+  ) AS resultado
+  `,
+        [dto.idpermiso, dto.tipo, email, Number(rol), Number(dto.modulo), motivoRechazo, horas],
       );
-      return rows[0]?.responder_solicitudes_jefe_i ?? null;
+
+      return rows[0]?.resultado ?? null;
     } catch (error) {
-      this.logger.error(`Error en responderSolicitud: ${error}`);
-      throw new InternalServerErrorException(`DB Error: ${(error as Error).message}`);
+      this.manejarError('responderSolicitud', error, 'No se pudo responder la solicitud');
     }
   }
 
@@ -78,10 +95,9 @@ export class SolicitudesJefeInmediatoService {
     }
 
     const data = resultado as Record<string, unknown>;
-    const pendientesDirectos = data.pendientes;
 
-    if (Array.isArray(pendientesDirectos)) {
-      return pendientesDirectos as Record<string, unknown>[];
+    if (Array.isArray(data['pendientes'])) {
+      return data['pendientes'] as Record<string, unknown>[];
     }
 
     const pendientesPersonales = this.obtenerArreglo(data, [
@@ -89,6 +105,7 @@ export class SolicitudesJefeInmediatoService {
       'permisosPersonales',
       'personales',
     ]);
+
     const pendientesOficiales = this.obtenerArreglo(data, [
       'pendientesOficiales',
       'permisosOficiales',
@@ -96,7 +113,9 @@ export class SolicitudesJefeInmediatoService {
     ]);
 
     return [
-      ...pendientesPersonales.map((item) => this.enriquecerTipo(item, 'PERMISO PERSONAL', 'PERSONAL')),
+      ...pendientesPersonales.map((item) =>
+        this.enriquecerTipo(item, 'PERMISO PERSONAL', 'PERSONAL'),
+      ),
       ...pendientesOficiales.map((item) => this.enriquecerTipo(item, 'PERMISO OFICIAL', 'OFICIAL')),
     ];
   }
@@ -107,10 +126,12 @@ export class SolicitudesJefeInmediatoService {
   ): Record<string, unknown>[] {
     for (const campo of posiblesCampos) {
       const valor = data[campo];
+
       if (Array.isArray(valor)) {
         return valor as Record<string, unknown>[];
       }
     }
+
     return [];
   }
 
@@ -120,9 +141,19 @@ export class SolicitudesJefeInmediatoService {
     tipoPermiso: 'PERSONAL' | 'OFICIAL',
   ): Record<string, unknown> {
     return {
-      tipo: item.tipo ?? tipo,
-      tipoPermiso: item.tipoPermiso ?? tipoPermiso,
+      tipo: item['tipo'] ?? tipo,
+      tipoPermiso: item['tipoPermiso'] ?? tipoPermiso,
       ...item,
     };
+  }
+
+  private manejarError(metodo: string, error: unknown, mensaje: string): never {
+    this.logger.error(`Error en ${metodo}`, error instanceof Error ? error.stack : String(error));
+
+    if (error instanceof HttpException) {
+      throw error;
+    }
+
+    throw new InternalServerErrorException(mensaje);
   }
 }

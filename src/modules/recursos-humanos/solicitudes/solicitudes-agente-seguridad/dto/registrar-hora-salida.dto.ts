@@ -1,33 +1,35 @@
 import { ApiProperty } from '@nestjs/swagger';
-import { IsEmail, IsIn, IsInt, IsNotEmpty, IsPositive, IsString, IsUUID } from 'class-validator';
+import { Type } from 'class-transformer';
+import { IsInt, IsNotEmpty, IsPositive, IsString, IsUUID, Matches } from 'class-validator';
 
 export class RegistrarHoraSalidaDto {
-  @ApiProperty({ example: 'a0fd92e2-82cd-4781-af3a-7e6e1879e72a' })
-  @IsUUID()
-  @IsNotEmpty()
-  idpermiso!: string;
+  @ApiProperty({
+    example: 'a0fd92e2-82cd-4781-af3a-7e6e1879e72a',
+  })
+  @IsUUID('4', {
+    message: 'El identificador del permiso debe ser un UUID válido',
+  })
+  @IsNotEmpty({
+    message: 'El identificador del permiso es obligatorio',
+  })
+  idPermiso!: string;
 
-  @ApiProperty({ enum: ['PERMISO PERSONAL', 'PERMISO OFICIAL'] })
-  @IsIn(['PERMISO PERSONAL', 'PERMISO OFICIAL'])
-  @IsNotEmpty()
-  tipo!: string;
-
-  @ApiProperty({ example: 'marlon.escobar@sedh.gob.hn' })
-  @IsEmail()
-  @IsNotEmpty()
-  email!: string;
-
-  @ApiProperty({ example: '08:30' })
+  @ApiProperty({
+    example: '13:15',
+  })
   @IsString()
-  @IsNotEmpty()
+  @IsNotEmpty({
+    message: 'La hora de salida es obligatoria',
+  })
+  @Matches(/^([01]\d|2[0-3]):[0-5]\d$/, {
+    message: 'La hora de salida debe tener el formato HH:mm',
+  })
   horaSalida!: string;
 
-  @ApiProperty({ example: 4 })
-  @IsInt()
-  @IsPositive()
-  rol!: number;
-
-  @ApiProperty({ example: 1 })
+  @ApiProperty({
+    example: 1,
+  })
+  @Type(() => Number)
   @IsInt()
   @IsPositive()
   idmodulo!: number;

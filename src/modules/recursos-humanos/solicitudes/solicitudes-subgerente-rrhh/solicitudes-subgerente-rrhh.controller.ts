@@ -6,7 +6,7 @@ import { CargarPendientesSubgerenteDto } from './dto/cargar-pendientes-subgerent
 import { ResponderSolicitudSubgerenteDto } from './dto/responder-solicitud-subgerente.dto';
 
 @ApiTags('Solicitudes Subgerente RRHH')
-@ApiBearerAuth()
+@ApiBearerAuth('access-token')
 @UseGuards(JwtAuthGuard)
 @Controller('rrhh/subgerente')
 export class SolicitudesSubgerenteRrhhController {

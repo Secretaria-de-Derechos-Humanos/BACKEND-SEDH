@@ -1,7 +1,6 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
 import {
-  IsEmail,
   IsIn,
   IsInt,
   IsNotEmpty,
@@ -9,59 +8,66 @@ import {
   IsPositive,
   IsString,
   IsUUID,
-  Matches,
+  MaxLength,
 } from 'class-validator';
 
 export class ResponderSolicitudJefeDto {
-  @ApiProperty({ example: 'a0fd92e2-82cd-4781-af3a-7e6e1879e72a' })
-  @IsUUID()
-  @IsNotEmpty()
+  @ApiProperty({
+    example: 'a0fd92e2-82cd-4781-af3a-7e6e1879e72a',
+    description: 'UUID real del permiso',
+  })
+  @IsUUID('4', {
+    message: 'El identificador del permiso debe ser un UUID válido',
+  })
+  @IsNotEmpty({
+    message: 'El identificador del permiso es obligatorio',
+  })
   idpermiso!: string;
 
-  @ApiProperty({ enum: ['PERMISO PERSONAL', 'PERMISO OFICIAL'] })
-  @IsIn(['PERMISO PERSONAL', 'PERMISO OFICIAL'])
-  @IsNotEmpty()
+  @ApiProperty({
+    example: 'PERMISO PERSONAL',
+    enum: ['PERMISO PERSONAL', 'PERMISO OFICIAL'],
+  })
+  @IsString()
+  @IsIn(['PERMISO PERSONAL', 'PERMISO OFICIAL'], {
+    message: 'El tipo debe ser PERMISO PERSONAL o PERMISO OFICIAL',
+  })
   tipo!: string;
 
-  @ApiProperty({ example: 'emerson.duron@sedh.gob.hn' })
-  @IsEmail()
-  @IsNotEmpty()
-  email!: string;
-
-  @ApiProperty({ example: 2 })
+  @ApiProperty({
+    example: 1,
+    description: 'Identificador del módulo',
+  })
   @Type(() => Number)
-  @IsInt()
-  @IsPositive()
-  rol!: number;
-
-  @ApiPropertyOptional({ example: 1 })
-  @Type(() => Number)
-  @IsInt()
-  @IsPositive()
-  @IsOptional()
-  modulo?: number;
-
-  @ApiPropertyOptional({ example: 1, deprecated: true })
-  @Type(() => Number)
-  @IsInt()
-  @IsPositive()
-  @IsOptional()
-  idmodulo?: number;
-
-  @ApiPropertyOptional({ example: 'Motivo del rechazo', nullable: true })
-  @IsString()
-  @IsOptional()
-  motRechazo?: string | null;
+  @IsInt({
+    message: 'El módulo debe ser un número entero',
+  })
+  @IsPositive({
+    message: 'El módulo debe ser mayor que cero',
+  })
+  modulo!: number;
 
   @ApiPropertyOptional({
-    example: '02:00:00',
-    nullable: true,
-    description: 'Solo requerido cuando se rechaza un permiso personal para devolver horas.',
-  })
-  @IsString()
-  @Matches(/^([01]\d|2[0-3]):[0-5]\d(:[0-5]\d)?$/, {
-    message: 'horas debe tener formato HH:MM o HH:MM:SS',
+    example: 'La documentación presentada es insuficiente',
+    description: 'Motivo del rechazo. Si no se envía, la solicitud se considera aprobada.',
   })
   @IsOptional()
-  horas?: string | null;
+  @IsString({
+    message: 'El motivo de rechazo debe ser texto',
+  })
+  @MaxLength(500, {
+    message: 'El motivo de rechazo no puede superar 500 caracteres',
+  })
+  motRechazo?: string;
+
+  @ApiPropertyOptional({
+    example: '02:00',
+    description:
+      'Horas asociadas al rechazo de un permiso personal, según el formato esperado por PostgreSQL',
+  })
+  @IsOptional()
+  @IsString({
+    message: 'Las horas deben enviarse como texto',
+  })
+  horas?: string;
 }

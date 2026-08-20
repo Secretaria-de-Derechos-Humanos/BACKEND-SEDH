@@ -6,49 +6,49 @@ import { EstadoSolicitud } from '../../../catalogos/entities/estado-solicitud.en
 @Entity({ name: 'permisos_oficiales', schema: 'rrhh' })
 export class PermisoOficial extends EntidadAuditoria {
   @PrimaryGeneratedColumn('uuid', { name: 'idpermisooficial' })
-  idPermisoOficial: string;
+  idPermisoOficial!: string;
 
   @Column({ name: 'idtiposolicitud', type: 'uuid' })
-  idTipoSolicitud: string;
+  idTipoSolicitud!: string;
 
   @Column({ name: 'emailinstitucional', type: 'varchar', length: 50 })
-  emailInstitucional: string;
+  emailInstitucional!: string;
 
   @Column({ name: 'fecsolicitud', type: 'date' })
-  fecSolicitud: Date;
+  fecSolicitud!: Date;
 
   @Column({ name: 'idestadosolicitud', type: 'uuid', nullable: true })
-  idEstadoSolicitud: string | null;
+  idEstadoSolicitud!: string | null;
 
   @Column({ name: 'motivo', type: 'varchar', length: 200 })
-  motivo: string;
+  motivo!: string;
 
   @Column({ name: 'priaprobacion', type: 'varchar', length: 50, nullable: true })
-  priAprobacion: string | null;
+  priAprobacion!: string | null;
 
   @Column({ name: 'segaprobacion', type: 'varchar', length: 50, nullable: true })
-  segAprobacion: string | null;
+  segAprobacion!: string | null;
 
   @Column({ name: 'motrechazo', type: 'varchar', length: 100, nullable: true })
-  motRechazo: string | null;
+  motRechazo!: string | null;
 
   @Column({ name: 'tiempolimite', type: 'time', nullable: true })
-  tiempoLimite: string | null;
+  tiempoLimite!: string | null;
 
   @Column({ name: 'horsalida', type: 'time', nullable: true })
-  horSalida: string | null;
+  horSalida!: string | null;
 
   @Column({ name: 'horretorno', type: 'time', nullable: true })
-  horRetorno: string | null;
+  horRetorno!: string | null;
 
   @Column({ name: 'guardiaturno', type: 'varchar', length: 50, nullable: true })
-  guardiaTurno: string | null;
+  guardiaTurno!: string | null;
 
   @ManyToOne(() => TipoSolicitudEmpleado, { onDelete: 'RESTRICT', onUpdate: 'CASCADE' })
   @JoinColumn({ name: 'idtiposolicitud' })
-  tipoSolicitud: TipoSolicitudEmpleado;
+  tipoSolicitud!: TipoSolicitudEmpleado;
 
   @ManyToOne(() => EstadoSolicitud, { nullable: true })
   @JoinColumn({ name: 'idestadosolicitud' })
-  estadoSolicitud: EstadoSolicitud | null;
+  estadoSolicitud!: EstadoSolicitud | null;
 }

@@ -108,7 +108,10 @@ class AccesoSistemaDto {
 }
 
 export class CrearEmpleadoAdminDto {
-  @ApiProperty({ example: 'issis.caceres@sedh.gob.hn', description: 'Email del administrador RRHH' })
+  @ApiProperty({
+    example: 'issis.caceres@sedh.gob.hn',
+    description: 'Email del administrador RRHH',
+  })
   @IsEmail()
   @IsNotEmpty()
   email!: string;

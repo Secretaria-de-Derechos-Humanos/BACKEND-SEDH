@@ -4,12 +4,12 @@ import { ExtractJwt, Strategy } from 'passport-jwt';
 import { ConfigService } from '@nestjs/config';
 
 export interface RolJwt {
-  r: number;   // idrol
-  m: number[]; // ids de módulos
+  r: number;
+  m: number[];
 }
 
 export interface JwtPayload {
-  sub: string;           // uuid del usuario
+  sub: string;
   email: string;
   telefono: string;
   nombre: string;
@@ -18,6 +18,7 @@ export interface JwtPayload {
   dependencia: string;
   fechaIngreso: string;
   roles: RolJwt[];
+  debeCambiarPassword?: boolean;
   tipo: string;
   jti: string;
   iss?: string;
@@ -28,21 +29,33 @@ export interface JwtPayload {
 
 @Injectable()
 export class JwtStrategy extends PassportStrategy(Strategy, 'jwt') {
-  constructor(private readonly config: ConfigService) {
+  constructor(config: ConfigService) {
+    const publicKey = config.get<string>('jwt.publicKey');
+    const issuer = config.get<string>('jwt.issuer');
+    const audience = config.get<string>('jwt.audience');
+    if (!publicKey) {
+      throw new Error('La clave pública JWT no fue cargada');
+    }
+
     super({
       jwtFromRequest: ExtractJwt.fromAuthHeaderAsBearerToken(),
       ignoreExpiration: false,
-      secretOrKey: config.get<string>('jwt.publicKey'),
+      secretOrKey: publicKey,
       algorithms: ['RS256'],
-      issuer: config.get<string>('jwt.issuer'),
-      audience: config.get<string>('jwt.audience'),
+      issuer,
+      audience,
     });
   }
 
   validate(payload: JwtPayload): JwtPayload {
+    if (!payload) {
+      throw new UnauthorizedException('Token no proporcionado');
+    }
+
     if (payload.tipo !== 'access') {
       throw new UnauthorizedException('Tipo de token incorrecto');
     }
+
     return payload;
   }
 }

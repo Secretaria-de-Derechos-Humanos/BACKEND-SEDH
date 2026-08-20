@@ -1,4 +1,9 @@
-import { BadRequestException, Injectable, InternalServerErrorException, Logger } from '@nestjs/common';
+import {
+  BadRequestException,
+  Injectable,
+  InternalServerErrorException,
+  Logger,
+} from '@nestjs/common';
 import { DataSource } from 'typeorm';
 import { ResponderSolicitudSubgerenteDto } from './dto/responder-solicitud-subgerente.dto';
 
@@ -90,7 +95,9 @@ export class SolicitudesSubgerenteRrhhService {
     ]);
 
     return [
-      ...pendientesPersonales.map((item) => this.enriquecerTipo(item, 'PERMISO PERSONAL', 'PERSONAL')),
+      ...pendientesPersonales.map((item) =>
+        this.enriquecerTipo(item, 'PERMISO PERSONAL', 'PERSONAL'),
+      ),
       ...pendientesOficiales.map((item) => this.enriquecerTipo(item, 'PERMISO OFICIAL', 'OFICIAL')),
     ];
   }

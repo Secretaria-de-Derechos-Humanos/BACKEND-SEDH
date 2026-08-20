@@ -7,5 +7,4 @@ export const MODULOS_KEY = 'modulos';
  * a al menos uno de los módulos indicados (por idmodulo).
  * Los IDs vienen del JWT payload: roles[].m[]
  */
-export const RequiereModulo = (...idModulos: number[]) =>
-  SetMetadata(MODULOS_KEY, idModulos);
+export const RequiereModulo = (...idModulos: number[]) => SetMetadata(MODULOS_KEY, idModulos);

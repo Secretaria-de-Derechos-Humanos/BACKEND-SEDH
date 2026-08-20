@@ -1,19 +1,18 @@
 import { ApiProperty } from '@nestjs/swagger';
-import { IsEmail, IsInt, IsNotEmpty, IsPositive } from 'class-validator';
+import { Type } from 'class-transformer';
+import { IsInt, IsPositive } from 'class-validator';
 
 export class CargarSolicitudesAgenteDto {
-  @ApiProperty({ example: 'marlon.escobar@sedh.gob.hn' })
-  @IsEmail()
-  @IsNotEmpty()
-  email!: string;
-
-  @ApiProperty({ example: 4 })
-  @IsInt()
-  @IsPositive()
-  rol!: number;
-
-  @ApiProperty({ example: 1 })
-  @IsInt()
-  @IsPositive()
+  @ApiProperty({
+    example: 1,
+    description: 'Identificador del módulo de Recursos Humanos',
+  })
+  @Type(() => Number)
+  @IsInt({
+    message: 'El id del módulo debe ser un número entero',
+  })
+  @IsPositive({
+    message: 'El id del módulo debe ser mayor que cero',
+  })
   idmodulo!: number;
 }

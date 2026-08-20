@@ -7,8 +7,9 @@ import { VacacionesModule } from './solicitudes/vacaciones/vacaciones.module';
 import { SolicitudesEmpleadosModule } from './solicitudes/solicitudes-empleados/solicitudes-empleados.module';
 import { SolicitudesJefeInmediatoModule } from './solicitudes/solicitudes-jefe-inmediato/solicitudes-jefe-inmediato.module';
 import { SolicitudesSubgerenteRrhhModule } from './solicitudes/solicitudes-subgerente-rrhh/solicitudes-subgerente-rrhh.module';
-import { SolicitudesAgenteSeguriadModule } from './solicitudes/solicitudes-agente-seguridad/solicitudes-agente-seguridad.module';
+import { SolicitudesAgenteSeguridadModule } from './solicitudes/solicitudes-agente-seguridad/solicitudes-agente-seguridad.module';
 import { ReportesPermisosModule } from './reportes-permisos/reportes-permisos.module';
+import { AprobacionesModule } from './aprobaciones/aprobaciones.module';
 
 @Module({
   imports: [
@@ -20,8 +21,9 @@ import { ReportesPermisosModule } from './reportes-permisos/reportes-permisos.mo
     SolicitudesEmpleadosModule,
     SolicitudesJefeInmediatoModule,
     SolicitudesSubgerenteRrhhModule,
-    SolicitudesAgenteSeguriadModule,
+    SolicitudesAgenteSeguridadModule,
     ReportesPermisosModule,
+    AprobacionesModule,
   ],
 })
 export class RecursosHumanosModule {}

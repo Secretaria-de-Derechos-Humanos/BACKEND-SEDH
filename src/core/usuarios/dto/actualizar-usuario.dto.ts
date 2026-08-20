@@ -1,4 +1,4 @@
-import { IsBoolean, IsInt, IsOptional, IsString } from 'class-validator';
+import { IsBoolean, IsInt, IsOptional, IsString, MinLength } from 'class-validator';
 import { ApiProperty } from '@nestjs/swagger';
 
 export class ActualizarUsuarioDto {
@@ -11,6 +11,12 @@ export class ActualizarUsuarioDto {
   @IsOptional()
   @IsInt()
   idRol?: number;
+
+  @ApiProperty({ required: false })
+  @IsOptional()
+  @IsString()
+  @MinLength(8, { message: 'La contraseña debe tener al menos 8 caracteres' })
+  contrasena?: string;
 
   @ApiProperty({ required: false })
   @IsOptional()
