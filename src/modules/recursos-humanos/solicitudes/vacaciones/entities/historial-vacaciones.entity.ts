@@ -13,8 +13,16 @@ export class HistorialVacaciones {
   @Column({
     name: 'idpermisovaca',
     type: 'uuid',
+    nullable: true,
   })
-  idPermisoVaca!: string;
+  idPermisoVaca!: string | null;
+
+  @Column({
+    name: 'idsaldovacacion',
+    type: 'uuid',
+    nullable: true,
+  })
+  idSaldoVacacion!: string | null;
 
   @Column({
     name: 'idusuarioaccion',
