@@ -1,4 +1,13 @@
-import { IsBoolean, IsInt, IsOptional, IsString, MinLength } from 'class-validator';
+import {
+  IsArray,
+  IsBoolean,
+  IsInt,
+  IsOptional,
+  IsString,
+  MinLength,
+  ArrayNotEmpty,
+} from 'class-validator';
+
 import { ApiProperty } from '@nestjs/swagger';
 
 export class ActualizarUsuarioDto {
@@ -7,15 +16,29 @@ export class ActualizarUsuarioDto {
   @IsBoolean()
   activo?: boolean;
 
+  @ApiProperty({
+    required: false,
+    type: [Number],
+    example: [1, 5],
+    description: 'Roles que tendrá el usuario. Permite múltiples roles.',
+  })
+  @IsOptional()
+  @IsArray()
+  @ArrayNotEmpty()
+  @IsInt({ each: true })
+  idRoles?: number[];
+
   @ApiProperty({ required: false })
   @IsOptional()
   @IsInt()
-  idRol?: number;
+  idDependencia?: number;
 
   @ApiProperty({ required: false })
   @IsOptional()
   @IsString()
-  @MinLength(8, { message: 'La contraseña debe tener al menos 8 caracteres' })
+  @MinLength(8, {
+    message: 'La contraseña debe tener al menos 8 caracteres',
+  })
   contrasena?: string;
 
   @ApiProperty({ required: false })
