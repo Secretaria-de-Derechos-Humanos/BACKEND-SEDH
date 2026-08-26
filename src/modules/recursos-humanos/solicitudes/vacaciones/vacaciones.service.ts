@@ -1024,38 +1024,43 @@ export class VacacionesService {
 
     if (tieneRolJefe && !tieneRolSubgerente && !tieneRolAdmin) {
       whereJefe = `
-        AND e.idsupinmediato = (
-          SELECT numidentidad
-          FROM rrhh.empleados
-          WHERE idusuario = $1::uuid
-          LIMIT 1
-        )
-      `;
+      AND e.idsupinmediato = (
+        SELECT numidentidad
+        FROM rrhh.empleados
+        WHERE idusuario = $1::uuid
+        LIMIT 1
+      )
+    `;
+
       parametros.push(idUsuario);
     }
 
     const rows = (await this.dataSource.query(
       `
-        SELECT
-          e.idusuario,
-          e.numidentidad,
-          TRIM(
-            CONCAT_WS(
-              ' ',
-              e.prinombre,
-              e.segnombre,
-              e.priapellido,
-              e.segapellido
-            )
-          ) AS nombrecompleto,
-          UPPER(TRIM(tc.nombre)) AS tipocontratacion
-        FROM rrhh.empleados e
-        LEFT JOIN rrhh.tipos_contrataciones tc
-          ON tc.idtipocontratacion = e.idtipocontratacion
-        WHERE e.actlaboralmente = true
+      SELECT
+        e.idusuario,
+        e.numidentidad,
+        TRIM(
+          CONCAT_WS(
+            ' ',
+            e.prinombre,
+            e.segnombre,
+            e.priapellido,
+            e.segapellido
+          )
+        ) AS nombrecompleto,
+        UPPER(TRIM(tc.nombre)) AS tipocontratacion
+      FROM rrhh.empleados e
+      LEFT JOIN rrhh.tipos_contrataciones tc
+        ON tc.idtipocontratacion =
+           e.idtipocontratacion
+      WHERE
+        e.actlaboralmente = true
         ${whereJefe}
-        ORDER BY e.prinombre, e.priapellido
-      `,
+      ORDER BY
+        e.prinombre,
+        e.priapellido
+    `,
       parametros,
     )) as Array<{
       idusuario: string;
@@ -1067,22 +1072,47 @@ export class VacacionesService {
     const empleados: ReporteEmpleadoVacaciones[] = [];
 
     for (const row of rows) {
-      await this.prepararCicloVacaciones(row.idusuario, idUsuario);
+      try {
+        // -------------------------------------------------------
+        // INTENTAR PREPARAR EL CICLO Y OBTENER EL SALDO
+        // -------------------------------------------------------
 
-      const saldo = await this.obtenerMiSaldo(row.idusuario);
+        await this.prepararCicloVacaciones(row.idusuario, idUsuario);
 
-      empleados.push({
-        idUsuario: row.idusuario,
-        identidad: row.numidentidad,
-        nombreCompleto: row.nombrecompleto,
-        tipoContratacion: row.tipocontratacion,
-        anio: saldo.anio ?? anio,
-        diasAsignados: Number(saldo.diasAsignados ?? 0),
-        diasUtilizados: Number(saldo.diasUtilizados ?? 0),
-        diasReservados: Number(saldo.diasReservados ?? 0),
-        diasDisponibles: Number(saldo.diasDisponibles ?? 0),
-        saldoInicialPendiente: false,
-      });
+        const saldo = await this.obtenerMiSaldo(row.idusuario);
+
+        empleados.push({
+          idUsuario: row.idusuario,
+          identidad: row.numidentidad,
+          nombreCompleto: row.nombrecompleto,
+          tipoContratacion: row.tipocontratacion,
+          anio: saldo.anio ?? anio,
+          diasAsignados: Number(saldo.diasAsignados ?? 0),
+          diasUtilizados: Number(saldo.diasUtilizados ?? 0),
+          diasReservados: Number(saldo.diasReservados ?? 0),
+          diasDisponibles: Number(saldo.diasDisponibles ?? 0),
+          saldoInicialPendiente: false,
+        });
+      } catch (error) {
+        // -------------------------------------------------------
+        // NO DEJAR QUE UN EMPLEADO DETENGA TODO EL REPORTE
+        // -------------------------------------------------------
+
+        console.warn(`No se pudo calcular vacaciones para el empleado ${row.idusuario}:`, error);
+
+        empleados.push({
+          idUsuario: row.idusuario,
+          identidad: row.numidentidad,
+          nombreCompleto: row.nombrecompleto,
+          tipoContratacion: row.tipocontratacion,
+          anio,
+          diasAsignados: 0,
+          diasUtilizados: 0,
+          diasReservados: 0,
+          diasDisponibles: 0,
+          saldoInicialPendiente: true,
+        });
+      }
     }
 
     return {
@@ -1091,7 +1121,6 @@ export class VacacionesService {
       empleados,
     };
   }
-
   // =========================================================
   // CALCULAR DÍAS LABORABLES
   // =========================================================
@@ -1865,6 +1894,300 @@ export class VacacionesService {
         primeraAprobacion: solicitud.priAprobacion,
 
         segundaAprobacion: emailAprobador,
+      };
+    });
+  }
+  // =========================================================
+  // ANULAR SOLICITUD DE VACACIONES
+  // =========================================================
+
+  async anularVacaciones(idPermisoVaca: string, idUsuarioAccion: string) {
+    return this.dataSource.transaction(async (manager) => {
+      const vacacionesRepo = manager.getRepository(Vacaciones);
+
+      const saldoRepo = manager.getRepository(VacacionesSaldo);
+
+      const historialRepo = manager.getRepository(HistorialVacaciones);
+
+      // -----------------------------------------------------
+      // BUSCAR SOLICITUD
+      // -----------------------------------------------------
+
+      const solicitud = await vacacionesRepo.findOne({
+        where: {
+          idPermisoVaca,
+        },
+      });
+
+      if (!solicitud) {
+        throw new NotFoundException('Solicitud de vacaciones no encontrada');
+      }
+
+      // -----------------------------------------------------
+      // VALIDAR QUE SEA DEL EMPLEADO AUTENTICADO
+      // -----------------------------------------------------
+
+      if (solicitud.idUsuario !== idUsuarioAccion) {
+        throw new BadRequestException(
+          'No puede anular una solicitud que pertenece a otro empleado',
+        );
+      }
+
+      // -----------------------------------------------------
+      // VALIDAR FECHA DE INICIO
+      //
+      // Solo se puede anular antes de que comience.
+      // -----------------------------------------------------
+
+      const hoy = new Date();
+      hoy.setHours(0, 0, 0, 0);
+
+      const fechaInicio = new Date(solicitud.fecInicial);
+
+      fechaInicio.setHours(0, 0, 0, 0);
+
+      if (fechaInicio <= hoy) {
+        throw new BadRequestException(
+          'La solicitud ya inició o la fecha de inicio es hoy. No puede ser anulada.',
+        );
+      }
+
+      // -----------------------------------------------------
+      // OBTENER ESTADOS
+      // -----------------------------------------------------
+
+      const estadoEnProceso = await this.obtenerEstado('EN PROCESO');
+
+      const estadoAprobado = await this.obtenerEstado('APROBADO');
+
+      const estadoAnulado = await this.obtenerEstado('ANULADO');
+
+      // -----------------------------------------------------
+      // VALIDAR ESTADO ACTUAL
+      // -----------------------------------------------------
+
+      const esEnProceso = solicitud.idEstadoSolicitud === estadoEnProceso.idestadosolicitud;
+
+      const esAprobado = solicitud.idEstadoSolicitud === estadoAprobado.idestadosolicitud;
+
+      if (!esEnProceso && !esAprobado) {
+        throw new BadRequestException(
+          'La solicitud no puede ser anulada porque ya fue rechazada, anulada o tiene un estado no permitido.',
+        );
+      }
+
+      const estadoAnterior = solicitud.idEstadoSolicitud;
+
+      // -----------------------------------------------------
+      // CANTIDADES POR PERÍODO
+      // -----------------------------------------------------
+
+      const cantidadAnterior = Number(solicitud.cantPerAnterior ?? 0);
+
+      const cantidadActual = Number(solicitud.cantPerActual ?? 0);
+
+      // -----------------------------------------------------
+      // EN PROCESO
+      //
+      // Se liberan los días reservados.
+      // -----------------------------------------------------
+
+      if (esEnProceso) {
+        // -----------------------------------------------
+        // PERÍODO ANTERIOR
+        // -----------------------------------------------
+
+        if (
+          cantidadAnterior > 0 &&
+          solicitud.perAnterior &&
+          solicitud.perAnterior !== 'NO APLICA'
+        ) {
+          const saldoAnterior = await saldoRepo
+            .createQueryBuilder('saldo')
+            .setLock('pessimistic_write')
+            .where('saldo.idUsuario = :idUsuario', {
+              idUsuario: solicitud.idUsuario,
+            })
+            .andWhere('saldo.anio = :anio', {
+              anio: Number(solicitud.perAnterior),
+            })
+            .andWhere('saldo.activo = true')
+            .getOne();
+
+          if (!saldoAnterior) {
+            throw new NotFoundException('No se encontró el saldo del período anterior');
+          }
+
+          if (Number(saldoAnterior.diasReservados) < cantidadAnterior) {
+            throw new BadRequestException(
+              'El saldo reservado del período anterior es inconsistente',
+            );
+          }
+
+          saldoAnterior.diasReservados = Number(saldoAnterior.diasReservados) - cantidadAnterior;
+
+          saldoAnterior.actualizadoEn = new Date();
+
+          saldoAnterior.actualizadoPor = idUsuarioAccion;
+
+          await saldoRepo.save(saldoAnterior);
+        }
+
+        // -----------------------------------------------
+        // PERÍODO ACTUAL
+        // -----------------------------------------------
+
+        if (cantidadActual > 0 && solicitud.perActual) {
+          const saldoActual = await saldoRepo
+            .createQueryBuilder('saldo')
+            .setLock('pessimistic_write')
+            .where('saldo.idUsuario = :idUsuario', {
+              idUsuario: solicitud.idUsuario,
+            })
+            .andWhere('saldo.anio = :anio', {
+              anio: Number(solicitud.perActual),
+            })
+            .andWhere('saldo.activo = true')
+            .getOne();
+
+          if (!saldoActual) {
+            throw new NotFoundException('No se encontró el saldo del período actual');
+          }
+
+          if (Number(saldoActual.diasReservados) < cantidadActual) {
+            throw new BadRequestException('El saldo reservado del período actual es inconsistente');
+          }
+
+          saldoActual.diasReservados = Number(saldoActual.diasReservados) - cantidadActual;
+
+          saldoActual.actualizadoEn = new Date();
+
+          saldoActual.actualizadoPor = idUsuarioAccion;
+
+          await saldoRepo.save(saldoActual);
+        }
+      }
+
+      // -----------------------------------------------------
+      // APROBADO
+      //
+      // Los días ya estaban como utilizados.
+      // Se devuelven al saldo.
+      // -----------------------------------------------------
+
+      if (esAprobado) {
+        // -----------------------------------------------
+        // PERÍODO ANTERIOR
+        // -----------------------------------------------
+
+        if (
+          cantidadAnterior > 0 &&
+          solicitud.perAnterior &&
+          solicitud.perAnterior !== 'NO APLICA'
+        ) {
+          const saldoAnterior = await saldoRepo
+            .createQueryBuilder('saldo')
+            .setLock('pessimistic_write')
+            .where('saldo.idUsuario = :idUsuario', {
+              idUsuario: solicitud.idUsuario,
+            })
+            .andWhere('saldo.anio = :anio', {
+              anio: Number(solicitud.perAnterior),
+            })
+            .andWhere('saldo.activo = true')
+            .getOne();
+
+          if (!saldoAnterior) {
+            throw new NotFoundException('No se encontró el saldo del período anterior');
+          }
+
+          if (Number(saldoAnterior.diasUtilizados) < cantidadAnterior) {
+            throw new BadRequestException(
+              'El saldo utilizado del período anterior es inconsistente',
+            );
+          }
+
+          saldoAnterior.diasUtilizados = Number(saldoAnterior.diasUtilizados) - cantidadAnterior;
+
+          saldoAnterior.actualizadoEn = new Date();
+
+          saldoAnterior.actualizadoPor = idUsuarioAccion;
+
+          await saldoRepo.save(saldoAnterior);
+        }
+
+        // -----------------------------------------------
+        // PERÍODO ACTUAL
+        // -----------------------------------------------
+
+        if (cantidadActual > 0 && solicitud.perActual) {
+          const saldoActual = await saldoRepo
+            .createQueryBuilder('saldo')
+            .setLock('pessimistic_write')
+            .where('saldo.idUsuario = :idUsuario', {
+              idUsuario: solicitud.idUsuario,
+            })
+            .andWhere('saldo.anio = :anio', {
+              anio: Number(solicitud.perActual),
+            })
+            .andWhere('saldo.activo = true')
+            .getOne();
+
+          if (!saldoActual) {
+            throw new NotFoundException('No se encontró el saldo del período actual');
+          }
+
+          if (Number(saldoActual.diasUtilizados) < cantidadActual) {
+            throw new BadRequestException('El saldo utilizado del período actual es inconsistente');
+          }
+
+          saldoActual.diasUtilizados = Number(saldoActual.diasUtilizados) - cantidadActual;
+
+          saldoActual.actualizadoEn = new Date();
+
+          saldoActual.actualizadoPor = idUsuarioAccion;
+
+          await saldoRepo.save(saldoActual);
+        }
+      }
+
+      // -----------------------------------------------------
+      // CAMBIAR ESTADO A ANULADO
+      // -----------------------------------------------------
+
+      solicitud.idEstadoSolicitud = estadoAnulado.idestadosolicitud;
+
+      solicitud.actualizadoEn = new Date();
+
+      solicitud.actualizadoPor = idUsuarioAccion;
+
+      await vacacionesRepo.save(solicitud);
+
+      // -----------------------------------------------------
+      // HISTORIAL
+      // -----------------------------------------------------
+
+      const historial = historialRepo.create({
+        idPermisoVaca,
+        idUsuarioAccion,
+        accion: 'ANULACION VACACIONES',
+        estadoAnterior,
+        estadoNuevo: estadoAnulado.idestadosolicitud,
+        observacion: 'Solicitud anulada por el empleado antes de iniciar el período solicitado.',
+        fechaAccion: new Date(),
+      });
+
+      await historialRepo.save(historial);
+
+      // -----------------------------------------------------
+      // RESPUESTA
+      // -----------------------------------------------------
+
+      return {
+        message: 'Solicitud de vacaciones anulada correctamente',
+        idPermisoVaca,
+        estado: 'ANULADO',
+        diasDevueltos: cantidadAnterior + cantidadActual,
       };
     });
   }

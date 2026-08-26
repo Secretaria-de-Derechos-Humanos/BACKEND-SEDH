@@ -1,4 +1,13 @@
-import { Body, Controller, Post, Req, UnauthorizedException, UseGuards } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Param,
+  Post,
+  Req,
+  UnauthorizedException,
+  UseGuards,
+} from '@nestjs/common';
+
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { Request } from 'express';
 import { JwtAuthGuard } from '../../../../core/auth/guards/jwt-auth.guard';
@@ -26,9 +35,25 @@ export class PermisosOficialesController {
     @Body() dto: InsertarPermisoOficialDto,
   ) {
     const email = request.user?.email?.trim();
+
     if (!email) {
       throw new UnauthorizedException('No se pudo identificar al usuario autenticado');
     }
+
     return this.permisosOficialesService.insertarPermisoOficial(dto, email);
+  }
+
+  @Post('anular/:id')
+  @ApiOperation({
+    summary: 'Anular un permiso oficial del usuario autenticado',
+  })
+  anularPermisoOficial(@Req() request: RequestAutenticado, @Param('id') idPermiso: string) {
+    const email = request.user?.email?.trim();
+
+    if (!email) {
+      throw new UnauthorizedException('No se pudo identificar al usuario autenticado');
+    }
+
+    return this.permisosOficialesService.anularPermisoOficial(idPermiso, email);
   }
 }

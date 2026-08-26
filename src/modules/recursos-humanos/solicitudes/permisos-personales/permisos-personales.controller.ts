@@ -2,17 +2,21 @@ import {
   Body,
   Controller,
   Get,
+  Param,
   Post,
   Query,
   Req,
   UnauthorizedException,
   UseGuards,
 } from '@nestjs/common';
+
 import { ApiBearerAuth, ApiOperation, ApiQuery, ApiTags } from '@nestjs/swagger';
+
 import { Request } from 'express';
 
 import { JwtAuthGuard } from '../../../../core/auth/guards/jwt-auth.guard';
 import { JwtPayload } from '../../../../core/auth/strategies/jwt.strategy';
+
 import { InsertarPermisoPersonalDto } from './dto/insertar-permiso-personal.dto';
 import { PermisosPersonalesService } from './permisos-personales.service';
 
@@ -26,6 +30,28 @@ type RequestAutenticado = Request & {
 @Controller('rrhh/permisos-personales')
 export class PermisosPersonalesController {
   constructor(private readonly permisosPersonalesService: PermisosPersonalesService) {}
+
+  // ============================================================
+  // DATOS DEL EMPLEADO AUTENTICADO
+  // ============================================================
+
+  @Post('datos')
+  @ApiOperation({
+    summary: 'Consultar los datos del empleado autenticado para una solicitud',
+  })
+  obtenerDatosPermiso(@Req() request: RequestAutenticado) {
+    const email = request.user?.email?.trim();
+
+    if (!email) {
+      throw new UnauthorizedException('No se pudo identificar al usuario autenticado');
+    }
+
+    return this.permisosPersonalesService.obtenerDatosPermiso(email);
+  }
+
+  // ============================================================
+  // INSERTAR PERMISO PERSONAL
+  // ============================================================
 
   @Post('insertar')
   @ApiOperation({
@@ -43,6 +69,28 @@ export class PermisosPersonalesController {
 
     return this.permisosPersonalesService.insertarPermisoPersonal(dto, email);
   }
+
+  // ============================================================
+  // ANULAR PERMISO PERSONAL
+  // ============================================================
+
+  @Post('anular/:id')
+  @ApiOperation({
+    summary: 'Anular un permiso personal del usuario autenticado',
+  })
+  anularPermisoPersonal(@Req() request: RequestAutenticado, @Param('id') idPermiso: string) {
+    const email = request.user?.email?.trim();
+
+    if (!email) {
+      throw new UnauthorizedException('No se pudo identificar al usuario autenticado');
+    }
+
+    return this.permisosPersonalesService.anularPermisoPersonal(idPermiso, email);
+  }
+
+  // ============================================================
+  // CONSULTAR DISPONIBILIDAD
+  // ============================================================
 
   @Get('disponibilidad')
   @ApiOperation({

@@ -131,6 +131,24 @@ export class VacacionesController {
 
     return this.vacacionesService.obtenerMisSolicitudes(usuario.idUsuario);
   }
+  // =========================================================
+  // EMPLEADO - ANULAR SOLICITUD
+  // =========================================================
+
+  @Post(':id/anular')
+  @ApiOperation({
+    summary: 'Anular una solicitud propia de vacaciones',
+  })
+  @ApiParam({
+    name: 'id',
+    description: 'UUID de la solicitud de vacaciones',
+    example: 'a0fd92e2-82cd-4781-af3a-7e6e1879e72a',
+  })
+  anularVacaciones(@Param('id') idPermisoVaca: string, @Req() request: Request) {
+    const usuario = this.obtenerUsuario(request);
+
+    return this.vacacionesService.anularVacaciones(idPermisoVaca, usuario.idUsuario);
+  }
 
   // =========================================================
   // JEFE INMEDIATO - SOLICITUDES PENDIENTES
