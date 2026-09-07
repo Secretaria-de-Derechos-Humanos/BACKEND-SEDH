@@ -319,6 +319,7 @@ export class ConstanciasController {
           new FileTypeValidator({
             fileType:
               /^application\/(pdf|vnd\.openxmlformats-officedocument\.wordprocessingml\.document)$/,
+            skipMagicNumbersValidation: true,
           }),
         ],
         fileIsRequired: true,
