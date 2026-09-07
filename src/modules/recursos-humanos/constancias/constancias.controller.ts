@@ -317,7 +317,8 @@ export class ConstanciasController {
             maxSize: 10 * 1024 * 1024,
           }),
           new FileTypeValidator({
-            fileType: /(pdf|vnd\.openxmlformats-officedocument\.wordprocessingml\.document)$/,
+            fileType:
+              /^application\/(pdf|vnd\.openxmlformats-officedocument\.wordprocessingml\.document)$/,
           }),
         ],
         fileIsRequired: true,
