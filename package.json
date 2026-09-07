@@ -68,6 +68,7 @@
     "@types/express-session": "^1.17.7",
     "@types/jest": "^29.5.2",
     "@types/mssql": "^12.3.0",
+    "@types/multer": "^2.2.0",
     "@types/node": "^20.19.43",
     "@types/passport-jwt": "^3.0.8",
     "@types/passport-local": "^1.0.35",

@@ -9,16 +9,20 @@ import {
   UnauthorizedException,
   UseGuards,
 } from '@nestjs/common';
+
 import { ApiBearerAuth, ApiOperation, ApiParam, ApiTags } from '@nestjs/swagger';
+
 import { Request } from 'express';
 
 import { JwtAuthGuard } from '../../../../core/auth/guards/jwt-auth.guard';
+
 import { CrearSolicitudVacacionesDto } from './dto/crear-solicitud-vacaciones.dto';
 import { AprobarVacacionesDto } from './dto/aprobar-vacaciones.dto';
 import { RechazarVacacionesDto } from './dto/rechazar-vacaciones.dto';
 import { CargaInicialSaldoDto } from './dto/carga-inicial-saldo.dto';
 import { AjusteSaldoVacacionesDto } from './dto/ajuste-saldo-vacaciones.dto';
 import { DescuentoMasivoVacacionesDto } from './dto/descuento-masivo-vacaciones.dto';
+
 import { VacacionesService } from './vacaciones.service';
 
 @ApiTags('Vacaciones')
@@ -41,7 +45,10 @@ export class VacacionesController {
       sub?: string;
       idUsuario?: string;
       email?: string;
-      roles?: { r: number; m: number[] }[];
+      roles?: {
+        r: number;
+        m: number[];
+      }[];
     };
 
     const idUsuario = user.idUsuario ?? user.sub;
@@ -70,6 +77,7 @@ export class VacacionesController {
 
     // 3 = Subgerencia RRHH
     // 5 = Administrador
+
     const autorizado = usuario.roles.includes(3) || usuario.roles.includes(5);
 
     if (!autorizado) {
@@ -78,7 +86,27 @@ export class VacacionesController {
 
     return usuario;
   }
+  // =========================================================
+  // AUTORIZACIÓN PARA VERIFICACIÓN DE VACACIONES
+  // =========================================================
 
+  private validarVerificadorVacaciones(request: Request): {
+    idUsuario: string;
+    email: string;
+    roles: number[];
+  } {
+    const usuario = this.obtenerUsuario(request);
+
+    // 6 = Verificador Vacaciones
+    // 5 = Administrador
+    const autorizado = usuario.roles.includes(6) || usuario.roles.includes(5);
+
+    if (!autorizado) {
+      throw new UnauthorizedException('No tiene permisos para verificar el saldo de vacaciones');
+    }
+
+    return usuario;
+  }
   // =========================================================
   // EMPLEADO - MI SALDO
   // =========================================================
@@ -89,6 +117,7 @@ export class VacacionesController {
   })
   obtenerMiSaldo(@Req() request: Request) {
     const usuario = this.obtenerUsuario(request);
+
     return this.vacacionesService.obtenerMiSaldo(usuario.idUsuario);
   }
 
@@ -131,6 +160,7 @@ export class VacacionesController {
 
     return this.vacacionesService.obtenerMisSolicitudes(usuario.idUsuario);
   }
+
   // =========================================================
   // EMPLEADO - ANULAR SOLICITUD
   // =========================================================
@@ -159,7 +189,7 @@ export class VacacionesController {
     summary: 'Consultar solicitudes de vacaciones pendientes del Jefe Inmediato',
   })
   obtenerSolicitudesPendientesJefe(@Req() request: Request) {
-    const usuario = this.obtenerUsuario(request);
+    const usuario = this.validarJefeVacaciones(request);
 
     return this.vacacionesService.obtenerSolicitudesPendientesJefe(usuario.idUsuario);
   }
@@ -182,7 +212,7 @@ export class VacacionesController {
     @Req() request: Request,
     @Body() body: AprobarVacacionesDto,
   ) {
-    const usuario = this.obtenerUsuario(request);
+    const usuario = this.validarJefeVacaciones(request);
 
     return this.vacacionesService.aprobarPorJefe(
       idPermisoVaca,
@@ -190,6 +220,95 @@ export class VacacionesController {
       usuario.email,
       body.observacion,
     );
+  }
+
+  // =========================================================
+  // ENCARGADO - SOLICITUDES PARA VERIFICAR SALDO
+  // =========================================================
+
+  @Get('pendientes-verificacion')
+  @ApiOperation({
+    summary: 'Consultar solicitudes de vacaciones pendientes de verificación de saldo',
+  })
+  obtenerSolicitudesPendientesVerificacion(@Req() request: Request) {
+    this.validarVerificadorVacaciones(request);
+
+    return this.vacacionesService.obtenerSolicitudesPendientesVerificacion();
+  }
+
+  // =========================================================
+  // ENCARGADO - VERIFICAR SALDO
+  // =========================================================
+
+  @Post(':id/verificar-saldo')
+  @ApiOperation({
+    summary: 'Verificar el saldo disponible y dar visto bueno a una solicitud',
+  })
+  @ApiParam({
+    name: 'id',
+    description: 'UUID de la solicitud de vacaciones',
+    example: 'a0fd92e2-82cd-4781-af3a-7e6e1879e72a',
+  })
+  verificarSaldoYDarVistoBueno(
+    @Param('id') idPermisoVaca: string,
+    @Req() request: Request,
+    @Body() body: AprobarVacacionesDto,
+  ) {
+    const usuario = this.validarVerificadorVacaciones(request);
+
+    return this.vacacionesService.verificarSaldoYDarVistoBueno(
+      idPermisoVaca,
+      usuario.idUsuario,
+      usuario.email,
+      body.observacion,
+    );
+  }
+  // =========================================================
+  // AUTORIZACIÓN PARA JEFE INMEDIATO
+  // =========================================================
+
+  private validarJefeVacaciones(request: Request): {
+    idUsuario: string;
+    email: string;
+    roles: number[];
+  } {
+    const usuario = this.obtenerUsuario(request);
+
+    // 2 = Jefe Inmediato
+    // 5 = Administrador
+    const autorizado = usuario.roles.includes(2) || usuario.roles.includes(5);
+
+    if (!autorizado) {
+      throw new UnauthorizedException(
+        'No tiene permisos para gestionar solicitudes de vacaciones como Jefe Inmediato',
+      );
+    }
+
+    return usuario;
+  }
+
+  // =========================================================
+  // AUTORIZACIÓN PARA APROBACIÓN FINAL
+  // =========================================================
+
+  private validarAprobacionFinalVacaciones(request: Request): {
+    idUsuario: string;
+    email: string;
+    roles: number[];
+  } {
+    const usuario = this.obtenerUsuario(request);
+
+    // 3 = Subgerencia RRHH
+    // 5 = Administrador
+    const autorizado = usuario.roles.includes(3) || usuario.roles.includes(5);
+
+    if (!autorizado) {
+      throw new UnauthorizedException(
+        'No tiene permisos para realizar la aprobación final de vacaciones',
+      );
+    }
+
+    return usuario;
   }
 
   // =========================================================
@@ -222,7 +341,7 @@ export class VacacionesController {
     @Req() request: Request,
     @Body() body: AprobarVacacionesDto,
   ) {
-    const usuario = this.obtenerUsuario(request);
+    const usuario = this.validarAprobacionFinalVacaciones(request);
 
     return this.vacacionesService.aprobarPorSubgerente(
       idPermisoVaca,

@@ -6,13 +6,11 @@ import {
   Logger,
   NotFoundException,
 } from '@nestjs/common';
-
 import { InjectRepository } from '@nestjs/typeorm';
-
 import { DataSource, Repository } from 'typeorm';
-
 import { InsertarPermisoPersonalDto } from './dto/insertar-permiso-personal.dto';
 import { PermisoPersonal } from './entities/permiso-personal.entity';
+import { NotificacionesService } from './../../notificaciones/notificaciones.service';
 
 interface DisponibilidadRow {
   hordisponibles: string | null;
@@ -38,8 +36,8 @@ export class PermisosPersonalesService {
   constructor(
     @InjectRepository(PermisoPersonal)
     private readonly repo: Repository<PermisoPersonal>,
-
     private readonly dataSource: DataSource,
+    private readonly notificacionesService: NotificacionesService,
   ) {}
 
   // ============================================================
@@ -83,7 +81,6 @@ export class PermisosPersonalesService {
     if (!permiso) {
       throw new NotFoundException(`Permiso personal ${id} no encontrado`);
     }
-
     return permiso;
   }
 
@@ -101,9 +98,7 @@ export class PermisosPersonalesService {
     );
 
     const resultado = rows?.[0]?.resultado;
-
     this.logger.log(`Datos permiso para ${email}: ${JSON.stringify(resultado)}`);
-
     if (!resultado) {
       throw new NotFoundException('No se encontraron datos del empleado');
     }
@@ -112,17 +107,11 @@ export class PermisosPersonalesService {
     // siempre reciba exactamente los nombres que espera.
     const data = {
       prinombre: resultado.prinombre ?? resultado.priNombre ?? resultado.nombre ?? '',
-
       segnombre: resultado.segnombre ?? resultado.segNombre ?? '',
-
       priapellido: resultado.priapellido ?? resultado.priApellido ?? '',
-
       segapellido: resultado.segapellido ?? resultado.segApellido ?? '',
-
       dependencia: resultado.dependencia ?? '',
-
       cargo: resultado.cargo ?? '',
-
       horas_disponibles:
         resultado.horas_disponibles ??
         resultado.horasDisponibles ??
@@ -149,14 +138,14 @@ export class PermisosPersonalesService {
     try {
       const rows = (await this.dataSource.query(
         `
-        SELECT rrhh.insertar_permiso_personal(
-          $1::character varying,
-          $2::date,
-          $3::time without time zone,
-          $4::character varying,
-          $5::boolean
-        ) AS resultado
-        `,
+      SELECT rrhh.insertar_permiso_personal(
+        $1::character varying,
+        $2::date,
+        $3::time without time zone,
+        $4::character varying,
+        $5::boolean
+      ) AS resultado
+      `,
         [email, dto.fecha, dto.horas, dto.motivo.trim(), dto.emergencia],
       )) as ResultadoFuncionRow[];
 
@@ -170,6 +159,64 @@ export class PermisosPersonalesService {
         throw new BadRequestException(
           resultado.message ?? 'No se pudo registrar el permiso personal',
         );
+      }
+
+      // ============================================================
+      // OBTENER ID DEL PERMISO CREADO
+      // ============================================================
+
+      const permisoCreado = await this.dataSource.query(
+        `
+      SELECT
+        pp.idpermisopersonal,
+        pp.emailinstitucional,
+        pp.fecsolicitud,
+        pp.horsolicitadas,
+        pp.motivo,
+        pp.emergencia,
+        e.idsupinmediato
+      FROM rrhh.permisos_personales pp
+
+      INNER JOIN rrhh.empleados e
+        ON LOWER(TRIM(e.emailinstitucional)) =
+           LOWER(TRIM(pp.emailinstitucional))
+
+      WHERE LOWER(TRIM(pp.emailinstitucional)) =
+            LOWER(TRIM($1))
+
+      ORDER BY pp.fecsolicitud DESC
+
+      LIMIT 1
+      `,
+        [email],
+      );
+      const permiso = permisoCreado?.[0];
+      // ============================================================
+      // CREAR NOTIFICACIÓN PARA EL JEFE INMEDIATO
+      // ============================================================
+
+      if (permiso?.idsupinmediato) {
+        const jefe = await this.dataSource.query(
+          `
+        SELECT
+          emailinstitucional
+        FROM rrhh.empleados
+        WHERE numidentidad =
+              $1
+        LIMIT 1
+        `,
+          [permiso.idsupinmediato],
+        );
+        const emailJefe = jefe?.[0]?.emailinstitucional;
+        if (emailJefe) {
+          await this.notificacionesService.crear(
+            await this.obtenerIdUsuarioPorEmail(emailJefe),
+            'Nueva solicitud de permiso personal',
+            `El empleado ${email} ha registrado una nueva solicitud de permiso personal para el día ${dto.fecha}.`,
+            'PERMISO_PERSONAL',
+            permiso.idpermisopersonal,
+          );
+        }
       }
 
       return resultado;
@@ -247,9 +294,7 @@ export class PermisosPersonalesService {
       const estadosAnulado = await manager.query(
         `
         SELECT idestadosolicitud
-
         FROM rrhh.estados_solicitudes
-
         WHERE UPPER(TRIM(nomestado)) =
               'ANULADO'
 
@@ -349,9 +394,7 @@ export class PermisosPersonalesService {
               ) / 60
 
           END AS minutos_consumidos
-
         FROM rrhh.permisos_personales pp
-
         INNER JOIN rrhh.estados_solicitudes es
           ON es.idestadosolicitud =
              pp.idestadosolicitud
@@ -365,7 +408,6 @@ export class PermisosPersonalesService {
               EXTRACT(
                 YEAR FROM $2::date
               )
-
           AND EXTRACT(
                 MONTH FROM pp.fecsolicitud
               ) =
@@ -379,14 +421,10 @@ export class PermisosPersonalesService {
         (
           SELECT
             hd.hordisponibles::text
-
           FROM rrhh.horas_disponibles hd
-
           WHERE LOWER(TRIM(hd.emailinstitucional)) =
                 LOWER(TRIM($1))
-
           LIMIT 1
-
         ) AS hordisponibles,
 
         COALESCE(
@@ -409,28 +447,18 @@ export class PermisosPersonalesService {
     )) as DisponibilidadRow[];
 
     const consumidoDia = Math.round(Number(rows[0]?.consumidodia ?? 0));
-
     const consumidoMes = Math.round(Number(rows[0]?.consumidomes ?? 0));
-
     const disponibleDia = Math.max(0, 180 - consumidoDia);
-
     const disponibleMes = Math.max(0, 540 - consumidoMes);
 
     return {
       fecha,
-
       limiteDiarioMinutos: 180,
-
       consumidoDiaMinutos: consumidoDia,
-
       disponibleDiaMinutos: disponibleDia,
-
       limiteMensualMinutos: 540,
-
       consumidoMesMinutos: consumidoMes,
-
       disponibleMesMinutos: disponibleMes,
-
       horasDisponibles: rows[0]?.hordisponibles ?? '00:00:00',
     };
   }
@@ -519,20 +547,13 @@ export class PermisosPersonalesService {
 
       SET
         horsalida = $2::time,
-
         guardiaturno = $3,
-
         actualizadoen = CURRENT_DATE,
-
         actualizadopor = $3
-
       WHERE idpermisopersonal =
             $1::uuid
-
         AND horsalida IS NULL
-
         AND horretorno IS NULL
-
       RETURNING
         idpermisopersonal,
         horsalida
@@ -548,11 +569,8 @@ export class PermisosPersonalesService {
 
     return {
       status: 'OK',
-
       mensaje: 'Hora de salida registrada correctamente',
-
       idPermiso,
-
       horaSalida: rows[0].horsalida,
     };
   }
@@ -567,17 +585,11 @@ export class PermisosPersonalesService {
         `
           SELECT
             idpermisopersonal,
-
             emailinstitucional,
-
             horsolicitadas,
-
             horsalida,
-
             horretorno
-
           FROM rrhh.permisos_personales
-
           WHERE idpermisopersonal =
                 $1::uuid
 
@@ -585,17 +597,13 @@ export class PermisosPersonalesService {
           `,
         [idPermiso],
       );
-
       const permiso = permisos?.[0];
-
       if (!permiso) {
         throw new NotFoundException('Permiso personal no encontrado');
       }
-
       if (!permiso.horsalida) {
         throw new BadRequestException('Debe registrar primero la hora de salida');
       }
-
       if (permiso.horretorno) {
         throw new BadRequestException('La hora de retorno ya fue registrada');
       }
@@ -624,30 +632,21 @@ export class PermisosPersonalesService {
             `,
         [horaRetorno, permiso.horsalida, permiso.horsolicitadas],
       );
-
       const minutosReales = Number(calculo[0]?.minutos_reales ?? 0);
-
       const minutosSolicitados = Number(calculo[0]?.minutos_solicitados ?? 0);
-
       if (minutosReales <= 0) {
         throw new BadRequestException('La hora de retorno debe ser posterior a la hora de salida');
       }
-
       const minutosADevolver = Math.max(0, minutosSolicitados - minutosReales);
-
       await manager.query(
         `
           UPDATE rrhh.permisos_personales
 
           SET
             horretorno = $2::time,
-
             guardiaturno = $3,
-
             actualizadoen = CURRENT_DATE,
-
             actualizadopor = $3
-
           WHERE idpermisopersonal =
                 $1::uuid
           `,
@@ -683,17 +682,30 @@ export class PermisosPersonalesService {
 
       return {
         status: 'OK',
-
         mensaje: 'Hora de retorno registrada correctamente',
-
         idPermiso,
-
         minutosSolicitados,
-
         minutosReales,
-
         minutosDevueltos: minutosADevolver,
       };
     });
+  }
+  private async obtenerIdUsuarioPorEmail(email: string): Promise<string> {
+    const usuarios = await this.dataSource.query(
+      `
+    SELECT
+      idusuario
+    FROM core.usuarios
+    WHERE LOWER(TRIM(emailinstitucional)) =
+          LOWER(TRIM($1))
+    LIMIT 1
+    `,
+      [email],
+    );
+    const idUsuario = usuarios?.[0]?.idusuario;
+    if (!idUsuario) {
+      throw new NotFoundException(`No se encontró el usuario correspondiente al correo ${email}`);
+    }
+    return idUsuario;
   }
 }

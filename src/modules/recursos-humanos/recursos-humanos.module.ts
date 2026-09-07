@@ -10,6 +10,8 @@ import { SolicitudesSubgerenteRrhhModule } from './solicitudes/solicitudes-subge
 import { SolicitudesAgenteSeguridadModule } from './solicitudes/solicitudes-agente-seguridad/solicitudes-agente-seguridad.module';
 import { ReportesPermisosModule } from './reportes-permisos/reportes-permisos.module';
 import { AprobacionesModule } from './aprobaciones/aprobaciones.module';
+import { NotificacionesModule } from './notificaciones/notificaciones.module';
+import { ConstanciasModule } from './constancias/constancias.module';
 
 @Module({
   imports: [
@@ -18,12 +20,14 @@ import { AprobacionesModule } from './aprobaciones/aprobaciones.module';
     PermisosOficialesModule,
     PermisosPersonalesModule,
     VacacionesModule,
+    ConstanciasModule,
     SolicitudesEmpleadosModule,
     SolicitudesJefeInmediatoModule,
     SolicitudesSubgerenteRrhhModule,
     SolicitudesAgenteSeguridadModule,
     ReportesPermisosModule,
     AprobacionesModule,
+    NotificacionesModule,
   ],
 })
 export class RecursosHumanosModule {}
