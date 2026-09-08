@@ -173,7 +173,6 @@ export class PermisosPersonalesService {
         pp.fecsolicitud,
         pp.horsolicitadas,
         pp.motivo,
-        pp.emergencia,
         e.idsupinmediato
       FROM rrhh.permisos_personales pp
 
