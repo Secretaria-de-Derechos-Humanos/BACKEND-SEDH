@@ -328,9 +328,9 @@ export class PermisosOficialesService {
        * un permiso aprobado.
        */
 
-      if (permiso.nomestado !== 'APROBADO') {
+      if (permiso.nomestado !== 'EN PROCESO' && permiso.nomestado !== 'APROBADO') {
         throw new BadRequestException(
-          'Solo se pueden anular permisos oficiales que estén aprobados',
+          'Solo se pueden anular permisos oficiales que estén en proceso o aprobados',
         );
       }
 
