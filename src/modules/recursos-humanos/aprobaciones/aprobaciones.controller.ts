@@ -76,7 +76,40 @@ export class AprobacionesController {
     const emailAprobador = this.obtenerEmailUsuario(req);
     return this.aprobacionesService.rechazarPermisoPersonal(id, emailAprobador, dto.motivoRechazo);
   }
+  @Patch('oficial/:id/aprobar')
+  @ApiOperation({
+    summary: 'Aprobar un permiso oficial',
+  })
+  @ApiParam({
+    name: 'id',
+    description: 'UUID del permiso oficial',
+  })
+  aprobarPermisoOficial(@Param('id') id: string, @Req() req: any) {
+    const emailAprobador = this.obtenerEmailUsuario(req);
 
+    return this.aprobacionesService.aprobarPermisoOficial(id, emailAprobador);
+  }
+
+  @Patch('oficial/:id/rechazar')
+  @ApiOperation({
+    summary: 'Rechazar un permiso oficial',
+  })
+  @ApiParam({
+    name: 'id',
+    description: 'UUID del permiso oficial',
+  })
+  @ApiBody({
+    type: RechazarSolicitudDto,
+  })
+  rechazarPermisoOficial(
+    @Param('id') id: string,
+    @Body() dto: RechazarSolicitudDto,
+    @Req() req: any,
+  ) {
+    const emailAprobador = this.obtenerEmailUsuario(req);
+
+    return this.aprobacionesService.rechazarPermisoOficial(id, emailAprobador, dto.motivoRechazo);
+  }
   private obtenerEmailUsuario(req: any): string {
     const email = req.user?.email ?? req.user?.emailInstitucional ?? req.user?.username;
     if (!email) {

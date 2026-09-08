@@ -296,7 +296,79 @@ export class AprobacionesService {
     permiso.motRechazo = motivo.substring(0, 100);
     return this.permisoPersonalRepo.save(permiso);
   }
+  /**
+   * Aprobar permiso oficial.
+   */
+  async aprobarPermisoOficial(idPermisoOficial: string, emailAprobador: string) {
+    const permiso = await this.permisosOficialesRepo.findOne({
+      where: {
+        idPermisoOficial,
+      },
+      relations: {
+        estadoSolicitud: true,
+      },
+    });
 
+    if (!permiso) {
+      throw new NotFoundException(`Permiso oficial ${idPermisoOficial} no encontrado`);
+    }
+
+    const estadoEnProceso = await this.obtenerEstadoPorNombre('EN PROCESO');
+
+    if (permiso.idEstadoSolicitud !== estadoEnProceso.idEstadoSolicitud) {
+      throw new BadRequestException('La solicitud ya fue aprobada o rechazada');
+    }
+
+    const estadoAprobado = await this.obtenerEstadoPorNombre('APROBADO');
+
+    permiso.idEstadoSolicitud = estadoAprobado.idEstadoSolicitud;
+    permiso.priAprobacion = emailAprobador;
+    permiso.motRechazo = null;
+
+    return this.permisosOficialesRepo.save(permiso);
+  }
+
+  /**
+   * Rechazar permiso oficial.
+   */
+  async rechazarPermisoOficial(
+    idPermisoOficial: string,
+    emailAprobador: string,
+    motivoRechazo: string,
+  ) {
+    const motivo = motivoRechazo?.trim();
+
+    if (!motivo) {
+      throw new BadRequestException('Debe ingresar el motivo del rechazo');
+    }
+
+    const permiso = await this.permisosOficialesRepo.findOne({
+      where: {
+        idPermisoOficial,
+      },
+      relations: {
+        estadoSolicitud: true,
+      },
+    });
+
+    if (!permiso) {
+      throw new NotFoundException(`Permiso oficial ${idPermisoOficial} no encontrado`);
+    }
+
+    const estadoEnProceso = await this.obtenerEstadoPorNombre('EN PROCESO');
+
+    if (permiso.idEstadoSolicitud !== estadoEnProceso.idEstadoSolicitud) {
+      throw new BadRequestException('La solicitud ya fue aprobada o rechazada');
+    }
+
+    const estadoRechazado = await this.obtenerEstadoPorNombre('RECHAZADO');
+
+    permiso.idEstadoSolicitud = estadoRechazado.idEstadoSolicitud;
+    permiso.priAprobacion = emailAprobador;
+    permiso.motRechazo = motivo.substring(0, 100);
+
+    return this.permisosOficialesRepo.save(permiso);
+  }
   /**
    * Busca un estado ignorando
    * mayúsculas, minúsculas y espacios.
