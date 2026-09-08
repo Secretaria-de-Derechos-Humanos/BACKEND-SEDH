@@ -196,25 +196,36 @@ export class PermisosPersonalesService {
       // ============================================================
 
       if (permiso?.idsupinmediato) {
-        const jefe = await this.dataSource.query(
-          `
-        SELECT
-          emailinstitucional
-        FROM rrhh.empleados
-        WHERE numidentidad =
-              $1
-        LIMIT 1
-        `,
-          [permiso.idsupinmediato],
-        );
-        const emailJefe = jefe?.[0]?.emailinstitucional;
-        if (emailJefe) {
-          await this.notificacionesService.crear(
-            await this.obtenerIdUsuarioPorEmail(emailJefe),
-            'Nueva solicitud de permiso personal',
-            `El empleado ${email} ha registrado una nueva solicitud de permiso personal para el día ${dto.fecha}.`,
-            'PERMISO_PERSONAL',
-            permiso.idpermisopersonal,
+        try {
+          const jefe = await this.dataSource.query(
+            `
+      SELECT
+        emailinstitucional
+      FROM rrhh.empleados
+      WHERE numidentidad = $1
+      LIMIT 1
+      `,
+            [permiso.idsupinmediato],
+          );
+
+          const emailJefe = jefe?.[0]?.emailinstitucional;
+
+          if (emailJefe) {
+            await this.notificacionesService.crear(
+              await this.obtenerIdUsuarioPorEmail(emailJefe),
+              'Nueva solicitud de permiso personal',
+              `El empleado ${email} ha registrado una nueva solicitud de permiso personal para el día ${dto.fecha}.`,
+              'PERMISO_PERSONAL',
+              permiso.idpermisopersonal,
+            );
+          } else {
+            this.logger.warn(`No se encontró correo del jefe inmediato para ${email}`);
+          }
+        } catch (error) {
+          this.logger.warn(
+            `El permiso personal ${permiso.idpermisopersonal} fue creado, ` +
+              `pero no se pudo crear la notificación al jefe: ` +
+              `${error instanceof Error ? error.message : String(error)}`,
           );
         }
       }
@@ -275,8 +286,10 @@ export class PermisosPersonalesService {
         throw new NotFoundException('El permiso no existe o no pertenece al usuario autenticado');
       }
 
-      if (permiso.nomestado !== 'APROBADO') {
-        throw new BadRequestException('Solo se pueden anular permisos que estén aprobados');
+      if (permiso.nomestado !== 'EN PROCESO' && permiso.nomestado !== 'APROBADO') {
+        throw new BadRequestException(
+          'Solo se pueden anular permisos que estén en proceso o aprobados',
+        );
       }
 
       if (permiso.horsalida) {
