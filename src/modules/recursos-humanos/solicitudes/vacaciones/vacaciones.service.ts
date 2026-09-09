@@ -697,6 +697,10 @@ export class VacacionesService {
       const diasAsignados = (periodoAnterior?.diasAsignados ?? 0) + periodoActual.diasAsignados;
       const diasUtilizados = (periodoAnterior?.diasUtilizados ?? 0) + periodoActual.diasUtilizados;
       const diasReservados = (periodoAnterior?.diasReservados ?? 0) + periodoActual.diasReservados;
+      const saldoInicialPendiente =
+        periodoActual.diasAsignados === 0 &&
+        periodoActual.diasUtilizados === 0 &&
+        periodoActual.diasReservados === 0;
 
       return {
         idSaldoVacacion: null,
@@ -713,12 +717,11 @@ export class VacacionesService {
         diasUtilizados,
         diasReservados,
         diasDisponibles,
-        saldoInicialPendiente: false,
+        saldoInicialPendiente,
       };
     }
 
     const anioActual = new Date().getFullYear();
-
     const saldo = await this.saldoRepo.findOne({
       where: {
         idUsuario,
@@ -800,7 +803,44 @@ export class VacacionesService {
     });
 
     if (existente) {
-      throw new BadRequestException(`Ya existe un saldo registrado para el período ${dto.anio}`);
+      const saldoVacio =
+        Number(existente.diasAsignados) === 0 &&
+        Number(existente.diasUtilizados) === 0 &&
+        Number(existente.diasReservados) === 0;
+
+      if (!saldoVacio) {
+        throw new BadRequestException(`Ya existe un saldo registrado para el período ${dto.anio}`);
+      }
+
+      return this.dataSource.transaction(async (manager) => {
+        const saldoRepo = manager.getRepository(VacacionesSaldo);
+
+        existente.diasAsignados = dto.diasAsignados;
+        existente.diasUtilizados = dto.diasUtilizados;
+        existente.diasReservados = dto.diasReservados;
+        existente.observacion = observacion;
+        existente.activo = true;
+        existente.actualizadoEn = new Date();
+        existente.actualizadoPor = idUsuarioAccion;
+
+        const guardado = await saldoRepo.save(existente);
+
+        await this.registrarHistorialSaldo(manager, {
+          idSaldoVacacion: guardado.idSaldoVacacion,
+          idUsuarioAccion,
+          accion: 'CARGA_INICIAL',
+          observacion,
+        });
+
+        return {
+          message: 'Saldo inicial registrado correctamente',
+          saldo: guardado,
+          diasDisponibles:
+            Number(guardado.diasAsignados) -
+            Number(guardado.diasUtilizados) -
+            Number(guardado.diasReservados),
+        };
+      });
     }
 
     return this.dataSource.transaction(async (manager) => {
@@ -2738,6 +2778,7 @@ export class VacacionesService {
         [idUsuarioAccion],
       );
       const rolesUsuario: number[] = usuarioRoles.map((item: any) => Number(item.idRol));
+
       // ---------------------------------------------------------
       // ADMINISTRADOR
       // ---------------------------------------------------------
