@@ -828,7 +828,7 @@ export class VacacionesService {
         await this.registrarHistorialSaldo(manager, {
           idSaldoVacacion: guardado.idSaldoVacacion,
           idUsuarioAccion,
-          accion: 'CARGA_INICIAL',
+          accion: 'EDITAR',
           observacion,
         });
 
@@ -865,7 +865,7 @@ export class VacacionesService {
       await this.registrarHistorialSaldo(manager, {
         idSaldoVacacion: guardado.idSaldoVacacion,
         idUsuarioAccion,
-        accion: 'CARGA_INICIAL',
+        accion: 'CREAR',
         observacion,
       });
 
