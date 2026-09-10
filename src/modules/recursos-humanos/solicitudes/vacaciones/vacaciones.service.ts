@@ -1255,19 +1255,31 @@ export class VacacionesService {
 
         await this.prepararCicloVacaciones(row.idusuario, idUsuario);
 
-        const saldo = await this.obtenerMiSaldo(row.idusuario);
+        const saldo = await this.saldoRepo.findOne({
+          where: {
+            idUsuario: row.idusuario,
+            anio,
+            activo: true,
+          },
+        });
+
+        const diasAsignados = Number(saldo?.diasAsignados ?? 0);
+        const diasUtilizados = Number(saldo?.diasUtilizados ?? 0);
+        const diasReservados = Number(saldo?.diasReservados ?? 0);
+
+        const diasDisponibles = Math.max(0, diasAsignados - diasUtilizados - diasReservados);
 
         empleados.push({
           idUsuario: row.idusuario,
           identidad: row.numidentidad,
           nombreCompleto: row.nombrecompleto,
           tipoContratacion: row.tipocontratacion,
-          anio: saldo.anio ?? anio,
-          diasAsignados: Number(saldo.diasAsignados ?? 0),
-          diasUtilizados: Number(saldo.diasUtilizados ?? 0),
-          diasReservados: Number(saldo.diasReservados ?? 0),
-          diasDisponibles: Number(saldo.diasDisponibles ?? 0),
-          saldoInicialPendiente: false,
+          anio,
+          diasAsignados,
+          diasUtilizados,
+          diasReservados,
+          diasDisponibles,
+          saldoInicialPendiente: !saldo,
         });
       } catch (error) {
         // ---------------------------------------------------
