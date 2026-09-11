@@ -1,13 +1,4 @@
-import {
-  IsArray,
-  IsBoolean,
-  IsInt,
-  IsOptional,
-  IsString,
-  MinLength,
-  ArrayNotEmpty,
-} from 'class-validator';
-
+import { IsBoolean, IsInt, IsOptional, IsString, MinLength } from 'class-validator';
 import { ApiProperty } from '@nestjs/swagger';
 
 export class ActualizarUsuarioDto {
@@ -18,17 +9,17 @@ export class ActualizarUsuarioDto {
 
   @ApiProperty({
     required: false,
-    type: [Number],
-    example: [1, 5],
-    description: 'Roles que tendrá el usuario. Permite múltiples roles.',
+    type: Number,
+    example: 5,
+    description: 'Rol que tendrá el usuario.',
   })
   @IsOptional()
-  @IsArray()
-  @ArrayNotEmpty()
-  @IsInt({ each: true })
-  idRoles?: number[];
+  @IsInt()
+  idRol?: number;
 
-  @ApiProperty({ required: false })
+  @ApiProperty({
+    required: false,
+  })
   @IsOptional()
   @IsInt()
   idDependencia?: number;
