@@ -35,43 +35,74 @@ export class UsuariosService {
   ) {}
 
   // ============================================================
-  // LISTAR USUARIOS CON SUS ROLES Y NOMBRE COMPLETO
+  // LISTAR USUARIOS CON ROLES Y NOMBRE COMPLETO
   // ============================================================
 
   async findAllWithRoles(): Promise<any[]> {
     const usuariosRaw = await this.repo.query(`
-      SELECT
-        u.idusuario,
-        u.emailinstitucional,
-        u.prinombre,
-        u.segnombre,
-        u.priapellido,
-        u.segapellido,
-        u.activo,
-        r.idrol,
-        r.nomrol
-      FROM core.usuarios u
-      LEFT JOIN core.usuario_roles ur
-        ON u.idusuario = ur.idusuario
-      LEFT JOIN core.roles r
-        ON ur.idrol = r.idrol
-      ORDER BY u.emailinstitucional ASC
-    `);
+    SELECT
+      u.idusuario,
+      u.emailinstitucional,
+
+      -- Nombre desde core.usuarios
+      -- Si no existe, se toma desde rrhh.empleados
+      COALESCE(
+        NULLIF(TRIM(u.prinombre), ''),
+        NULLIF(TRIM(e.prinombre), '')
+      ) AS prinombre,
+
+      COALESCE(
+        NULLIF(TRIM(u.segnombre), ''),
+        NULLIF(TRIM(e.segnombre), '')
+      ) AS segnombre,
+
+      COALESCE(
+        NULLIF(TRIM(u.priapellido), ''),
+        NULLIF(TRIM(e.priapellido), '')
+      ) AS priapellido,
+
+      COALESCE(
+        NULLIF(TRIM(u.segapellido), ''),
+        NULLIF(TRIM(e.segapellido), '')
+      ) AS segapellido,
+
+      u.activo,
+
+      r.idrol,
+      r.nomrol
+
+    FROM core.usuarios u
+
+    -- Buscar el empleado relacionado por correo
+    LEFT JOIN rrhh.empleados e
+      ON LOWER(TRIM(e.emailinstitucional))
+       = LOWER(TRIM(u.emailinstitucional))
+
+    LEFT JOIN core.usuario_roles ur
+      ON u.idusuario = ur.idusuario
+
+    LEFT JOIN core.roles r
+      ON ur.idrol = r.idrol
+
+    ORDER BY u.emailinstitucional ASC
+  `);
 
     const resultado = usuariosRaw.reduce((usuarios: any[], fila: any) => {
       let usuario = usuarios.find((item) => item.idUsuario === fila.idusuario);
 
       if (!usuario) {
+        const nombreCompleto = [fila.prinombre, fila.segnombre, fila.priapellido, fila.segapellido]
+          .filter((valor) => valor !== null && valor !== undefined && String(valor).trim() !== '')
+          .map((valor) => String(valor).trim())
+          .join(' ')
+          .trim();
+
         usuario = {
           idUsuario: fila.idusuario,
+
           emailInstitucional: fila.emailinstitucional,
 
-          // Nombre completo
-          nombre: [fila.prinombre, fila.segnombre, fila.priapellido, fila.segapellido]
-            .filter((valor) => valor !== null && valor !== undefined && String(valor).trim() !== '')
-            .map((valor) => String(valor).trim())
-            .join(' ')
-            .trim(),
+          nombre: nombreCompleto || null,
 
           activo: fila.activo === true,
 
@@ -81,7 +112,10 @@ export class UsuariosService {
         usuarios.push(usuario);
       }
 
-      // Agregar roles
+      // ========================================================
+      // AGREGAR ROLES
+      // ========================================================
+
       if (fila.idrol !== null && fila.idrol !== undefined) {
         const rolExiste = usuario.roles.some(
           (rol: any) => Number(rol.idRol) === Number(fila.idrol),
