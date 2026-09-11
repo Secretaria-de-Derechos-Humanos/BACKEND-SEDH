@@ -6,9 +6,8 @@ import {
   UnauthorizedException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { DataSource, Repository } from 'typeorm';
+import { DataSource, EntityManager, Repository } from 'typeorm';
 import * as bcrypt from 'bcrypt';
-
 import { CrearUsuarioDto } from './dto/crear-usuario.dto';
 import { ActualizarUsuarioDto } from './dto/actualizar-usuario.dto';
 import { Usuario } from './entities/usuario.entity';
@@ -34,75 +33,43 @@ export class UsuariosService {
     private readonly dataSource: DataSource,
   ) {}
 
-  // ============================================================
-  // LISTAR USUARIOS CON ROLES Y NOMBRE COMPLETO
-  // ============================================================
+  // =========================================================
+  // LISTAR USUARIOS CON TODOS SUS ROLES
+  // =========================================================
 
   async findAllWithRoles(): Promise<any[]> {
     const usuariosRaw = await this.repo.query(`
-    SELECT
-      u.idusuario,
-      u.emailinstitucional,
-
-      -- Nombre desde core.usuarios
-      -- Si no existe, se toma desde rrhh.empleados
-      COALESCE(
-        NULLIF(TRIM(u.prinombre), ''),
-        NULLIF(TRIM(e.prinombre), '')
-      ) AS prinombre,
-
-      COALESCE(
-        NULLIF(TRIM(u.segnombre), ''),
-        NULLIF(TRIM(e.segnombre), '')
-      ) AS segnombre,
-
-      COALESCE(
-        NULLIF(TRIM(u.priapellido), ''),
-        NULLIF(TRIM(e.priapellido), '')
-      ) AS priapellido,
-
-      COALESCE(
-        NULLIF(TRIM(u.segapellido), ''),
-        NULLIF(TRIM(e.segapellido), '')
-      ) AS segapellido,
-
-      u.activo,
-
-      r.idrol,
-      r.nomrol
-
-    FROM core.usuarios u
-
-    -- Buscar el empleado relacionado por correo
-    LEFT JOIN rrhh.empleados e
-      ON LOWER(TRIM(e.emailinstitucional))
-       = LOWER(TRIM(u.emailinstitucional))
-
-    LEFT JOIN core.usuario_roles ur
-      ON u.idusuario = ur.idusuario
-
-    LEFT JOIN core.roles r
-      ON ur.idrol = r.idrol
-
-    ORDER BY u.emailinstitucional ASC
-  `);
+      SELECT
+        u.idusuario,
+        u.emailinstitucional,
+        u.prinombre,
+        u.segnombre,
+        u.priapellido,
+        u.segapellido,
+        u.activo,
+        r.idrol,
+        r.nomrol
+      FROM core.usuarios u
+      LEFT JOIN core.usuario_roles ur
+        ON u.idusuario = ur.idusuario
+      LEFT JOIN core.roles r
+        ON ur.idrol = r.idrol
+      ORDER BY u.emailinstitucional ASC
+    `);
 
     const resultado = usuariosRaw.reduce((usuarios: any[], fila: any) => {
-      let usuario = usuarios.find((item) => item.idUsuario === fila.idusuario);
+      let usuario = usuarios.find((item) => item.idusuario === fila.idusuario);
 
       if (!usuario) {
-        const nombreCompleto = [fila.prinombre, fila.segnombre, fila.priapellido, fila.segapellido]
-          .filter((valor) => valor !== null && valor !== undefined && String(valor).trim() !== '')
-          .map((valor) => String(valor).trim())
-          .join(' ')
-          .trim();
-
         usuario = {
           idUsuario: fila.idusuario,
 
           emailInstitucional: fila.emailinstitucional,
 
-          nombre: nombreCompleto || null,
+          nombre: [fila.prinombre, fila.segnombre, fila.priapellido, fila.segapellido]
+            .filter(Boolean)
+            .join(' ')
+            .trim(),
 
           activo: fila.activo === true,
 
@@ -112,16 +79,10 @@ export class UsuariosService {
         usuarios.push(usuario);
       }
 
-      // ========================================================
-      // AGREGAR ROLES
-      // ========================================================
-
       if (fila.idrol !== null && fila.idrol !== undefined) {
-        const rolExiste = usuario.roles.some(
-          (rol: any) => Number(rol.idRol) === Number(fila.idrol),
-        );
+        const yaExiste = usuario.roles.some((rol: any) => Number(rol.idRol) === Number(fila.idrol));
 
-        if (!rolExiste) {
+        if (!yaExiste) {
           usuario.roles.push({
             idRol: Number(fila.idrol),
             nomRol: fila.nomrol,
@@ -135,13 +96,15 @@ export class UsuariosService {
     return resultado;
   }
 
-  // ============================================================
-  // BUSCAR USUARIO POR ID
-  // ============================================================
+  // =========================================================
+  // BUSCAR POR ID
+  // =========================================================
 
   async findById(idUsuario: string): Promise<Usuario> {
     const usuario = await this.repo.findOne({
-      where: { idUsuario },
+      where: {
+        idUsuario,
+      },
     });
 
     if (!usuario) {
@@ -151,9 +114,9 @@ export class UsuariosService {
     return usuario;
   }
 
-  // ============================================================
-  // BUSCAR USUARIO POR EMAIL
-  // ============================================================
+  // =========================================================
+  // BUSCAR POR EMAIL
+  // =========================================================
 
   async findByEmail(email: string): Promise<Usuario | null> {
     return this.repo.findOne({
@@ -163,9 +126,9 @@ export class UsuariosService {
     });
   }
 
-  // ============================================================
+  // =========================================================
   // CREAR USUARIO
-  // ============================================================
+  // =========================================================
 
   async crear(dto: CrearUsuarioDto): Promise<CrearUsuarioResultado> {
     const email = dto.emailInstitucional.trim().toLowerCase();
@@ -173,7 +136,6 @@ export class UsuariosService {
     return this.dataSource.transaction(async (manager) => {
       const repoUsuario = manager.getRepository(Usuario);
 
-      // Verificar correo
       const existe = await repoUsuario.findOne({
         where: {
           emailInstitucional: email,
@@ -184,7 +146,6 @@ export class UsuariosService {
         throw new ConflictException('El correo institucional ya está registrado');
       }
 
-      // Verificar rol
       const rolExiste = await manager.query(
         `
           SELECT
@@ -201,10 +162,8 @@ export class UsuariosService {
         throw new BadRequestException(`No existe el rol con id ${dto.idRol}`);
       }
 
-      // Encriptar contraseña
       const hash = await bcrypt.hash(dto.contrasena, 12);
 
-      // Crear usuario
       const usuario = repoUsuario.create({
         emailInstitucional: email,
 
@@ -229,7 +188,6 @@ export class UsuariosService {
 
       const usuarioGuardado = await repoUsuario.save(usuario);
 
-      // Asignar rol
       await manager.query(
         `
           INSERT INTO core.usuario_roles (
@@ -255,7 +213,7 @@ export class UsuariosService {
 
         priApellido: usuarioGuardado.priApellido ?? '',
 
-        segApellido: usuarioGuardado.segApellido ?? usuarioGuardado.segApellido,
+        segApellido: usuarioGuardado.segApellido,
 
         idRol: Number(dto.idRol),
 
@@ -266,9 +224,9 @@ export class UsuariosService {
     });
   }
 
-  // ============================================================
-  // RESUMEN DE USUARIO
-  // ============================================================
+  // =========================================================
+  // OBTENER RESUMEN DEL USUARIO
+  // =========================================================
 
   async obtenerResumenUsuario(idUsuario: string) {
     const rows = await this.dataSource.query(
@@ -293,16 +251,23 @@ export class UsuariosService {
 
         WHERE u.idusuario = $1::uuid
 
-        LIMIT 1
-        `,
+        ORDER BY r.idrol
+      `,
       [idUsuario],
     );
 
-    const usuario = rows?.[0];
-
-    if (!usuario) {
+    if (!rows?.length) {
       throw new NotFoundException('Usuario no encontrado');
     }
+
+    const usuario = rows[0];
+
+    const roles = rows
+      .filter((row: any) => row.idrol !== null && row.idrol !== undefined)
+      .map((row: any) => ({
+        idRol: Number(row.idrol),
+        nomRol: row.nomrol,
+      }));
 
     return {
       idUsuario: usuario.idusuario,
@@ -317,22 +282,24 @@ export class UsuariosService {
 
       segApellido: usuario.segapellido,
 
-      nombre: [usuario.prinombre, usuario.segnombre, usuario.priapellido, usuario.segapellido]
-        .filter(Boolean)
-        .join(' ')
-        .trim(),
-
       activo: usuario.activo,
 
-      idRol: usuario.idrol != null ? Number(usuario.idrol) : null,
+      // Se mantiene para compatibilidad
+      // con el frontend actual.
+      idRol: roles.length > 0 ? roles[0].idRol : null,
 
-      rol: usuario.nomrol ?? null,
+      rol: roles.length > 0 ? roles[0].nomRol : null,
+
+      // Nuevos campos para múltiples roles.
+      idRoles: roles.map((rol: any) => rol.idRol),
+
+      roles,
     };
   }
 
-  // ============================================================
+  // =========================================================
   // LISTAR TODOS
-  // ============================================================
+  // =========================================================
 
   async listarTodos(): Promise<Usuario[]> {
     return this.repo.find({
@@ -341,42 +308,182 @@ export class UsuariosService {
       },
     });
   }
+  // =========================================================
+  // LISTAR TODAS LAS DEPENDENCIAS
+  // =========================================================
 
-  // ============================================================
+  async listarDependencias() {
+    const rows = await this.dataSource.query(`
+    SELECT
+      d.iddependencia,
+      d.nomdependencia
+    FROM rrhh.dependencias d
+    ORDER BY d.nomdependencia ASC
+  `);
+
+    return {
+      success: true,
+
+      data: rows.map((dependencia: any) => ({
+        idDependencia: Number(dependencia.iddependencia),
+        nomDependencia: dependencia.nomdependencia,
+      })),
+
+      message: 'Dependencias obtenidas correctamente.',
+    };
+  }
+
+  // =========================================================
+  // OBTENER DEPENDENCIA DEL USUARIO
+  // =========================================================
+
+  async obtenerDependenciaUsuario(idUsuario: string) {
+    const rows = await this.dataSource.query(
+      `
+        SELECT
+          e.idusuario,
+          c.idcargo,
+          c.nomcargo,
+          d.iddependencia,
+          d.nomdependencia
+        FROM rrhh.empleados e
+
+        INNER JOIN rrhh.cargos c
+          ON c.idcargo = e.idcargo
+
+        INNER JOIN rrhh.dependencias d
+          ON d.iddependencia =
+             c.iddependencia
+
+        WHERE e.idusuario =
+              $1::uuid
+
+        LIMIT 1
+      `,
+      [idUsuario],
+    );
+
+    if (!rows?.length) {
+      return {
+        success: false,
+        data: null,
+        message: 'El usuario no tiene un empleado o cargo asociado.',
+      };
+    }
+
+    return {
+      success: true,
+
+      data: {
+        idDependencia: Number(rows[0].iddependencia),
+
+        nomDependencia: rows[0].nomdependencia,
+
+        idCargo: Number(rows[0].idcargo),
+
+        nomCargo: rows[0].nomcargo,
+      },
+
+      message: 'Dependencia obtenida correctamente.',
+    };
+  }
+
+  // =========================================================
   // ACTUALIZAR USUARIO
-  // ============================================================
+  // =========================================================
+
+  // =========================================================
+  // ACTUALIZAR USUARIO
+  // =========================================================
 
   async actualizar(idUsuario: string, dto: ActualizarUsuarioDto): Promise<Usuario> {
     return this.dataSource.transaction(async (manager) => {
       const repoUsuario = manager.getRepository(Usuario);
 
       const usuario = await repoUsuario.findOne({
-        where: { idUsuario },
+        where: {
+          idUsuario,
+        },
       });
 
       if (!usuario) {
         throw new NotFoundException('Usuario no encontrado');
       }
 
-      // ==========================================================
-      // ACTUALIZAR ESTADO
-      // ==========================================================
+      // =====================================================
+      // PREPARAR ROLES
+      // =====================================================
+
+      const rolesSolicitados =
+        dto.idRoles !== undefined ? dto.idRoles.map((id) => Number(id)) : undefined;
+
+      // =====================================================
+      // VALIDAR AL MENOS UN ROL
+      // =====================================================
+
+      if (rolesSolicitados !== undefined && rolesSolicitados.length === 0) {
+        throw new BadRequestException('Debe seleccionar al menos un rol para el usuario.');
+      }
+
+      // =====================================================
+      // ELIMINAR ROLES DUPLICADOS
+      // =====================================================
+
+      const rolesUnicos =
+        rolesSolicitados !== undefined ? [...new Set(rolesSolicitados)] : undefined;
+
+      // =====================================================
+      // VALIDAR QUE TODOS LOS ROLES EXISTAN
+      // =====================================================
+
+      if (rolesUnicos !== undefined) {
+        const rolesExistentes = await manager.query(
+          `
+              SELECT idrol
+              FROM core.roles
+              WHERE idrol =
+                    ANY($1::integer[])
+            `,
+          [rolesUnicos],
+        );
+
+        const idsExistentes = new Set(rolesExistentes.map((rol: any) => Number(rol.idrol)));
+
+        const rolesInvalidos = rolesUnicos.filter((idRol) => !idsExistentes.has(idRol));
+
+        if (rolesInvalidos.length) {
+          throw new BadRequestException(
+            `No existe(n) el/los rol(es): ${rolesInvalidos.join(', ')}.`,
+          );
+        }
+      }
+
+      // =====================================================
+      // VALIDAR JEFE INMEDIATO
+      // ROL 2
+      // =====================================================
+
+      if (rolesUnicos?.includes(2)) {
+        if (dto.idDependencia === undefined || dto.idDependencia === null) {
+          throw new BadRequestException(
+            'Debe seleccionar una dependencia para asignar el rol de Jefe Inmediato.',
+          );
+        }
+
+        await this.validarJefeInmediato(manager, idUsuario, Number(dto.idDependencia));
+      }
+
+      // =====================================================
+      // ACTUALIZAR DATOS DEL USUARIO
+      // =====================================================
 
       if (dto.activo !== undefined) {
         usuario.activo = dto.activo;
       }
 
-      // ==========================================================
-      // ACTUALIZAR CONTRASEÑA
-      // ==========================================================
-
       if (dto.contrasena) {
         usuario.contrasena = await bcrypt.hash(dto.contrasena, 12);
       }
-
-      // ==========================================================
-      // USUARIO QUE REALIZA LA ACTUALIZACIÓN
-      // ==========================================================
 
       if (dto.actualizadoPor) {
         usuario.actualizadoPor = dto.actualizadoPor;
@@ -386,140 +493,137 @@ export class UsuariosService {
 
       await repoUsuario.save(usuario);
 
-      // ==========================================================
-      // ACTUALIZAR ROL
-      // ==========================================================
-      // El ActualizarUsuarioDto utiliza:
-      // idRol?: number
-      //
-      // Por lo tanto NO debemos utilizar:
-      // dto.idRoles.length
-      // dto.idRoles.filter()
-      // for (const idRol of dto.idRoles)
-      // ==========================================================
+      // =====================================================
+      // ACTUALIZAR ROLES
+      // =====================================================
 
-      if (dto.idRol !== undefined) {
-        // Verificar que el rol exista
-        const rolExiste = await manager.query(
-          `
-          SELECT
-            idrol,
-            nomrol
-          FROM core.roles
-          WHERE idrol = $1::integer
-          LIMIT 1
-        `,
-          [dto.idRol],
-        );
-
-        if (!rolExiste?.length) {
-          throw new BadRequestException(`No existe el rol con id ${dto.idRol}`);
-        }
-
-        // Eliminar el rol actual
+      if (rolesUnicos !== undefined) {
+        // Eliminar roles actuales
         await manager.query(
           `
-          DELETE FROM core.usuario_roles
-          WHERE idusuario = $1::uuid
-        `,
+            DELETE FROM core.usuario_roles
+            WHERE idusuario =
+                  $1::uuid
+          `,
           [idUsuario],
         );
 
-        // Insertar el nuevo rol
-        await manager.query(
-          `
-          INSERT INTO core.usuario_roles (
-            idusuario,
-            idrol
-          )
-          VALUES (
-            $1::uuid,
-            $2::integer
-          )
-        `,
-          [idUsuario, dto.idRol],
-        );
+        // Insertar todos los roles seleccionados
+        for (const idRol of rolesUnicos) {
+          await manager.query(
+            `
+              INSERT INTO core.usuario_roles (
+                idusuario,
+                idrol
+              )
+              VALUES (
+                $1::uuid,
+                $2::integer
+              )
+            `,
+            [idUsuario, idRol],
+          );
+        }
       }
 
       return usuario;
     });
   }
-  // ============================================================
-  // LISTAR DEPENDENCIAS
-  // ============================================================
 
-  async listarDependencias() {
-    const dependencias = await this.dataSource.query(
+  // =========================================================
+  // VALIDAR JEFE INMEDIATO
+  // =========================================================
+
+  private async validarJefeInmediato(
+    manager: EntityManager,
+    idUsuario: string,
+    idDependencia: number,
+  ): Promise<void> {
+    // -------------------------------------------------
+    // OBTENER DEPENDENCIA ACTUAL DEL EMPLEADO
+    // -------------------------------------------------
+
+    const dependenciaUsuario = await manager.query(
       `
-        SELECT
-          d.iddependencia,
-          d.nomdependencia
-        FROM rrhh.dependencias d
-        ORDER BY d.nomdependencia ASC
-      `,
-    );
+          SELECT
+            c.iddependencia
+          FROM rrhh.empleados e
 
-    return dependencias.map((dependencia: any) => ({
-      idDependencia: Number(dependencia.iddependencia),
-      nomDependencia: dependencia.nomdependencia,
-    }));
-  }
+          INNER JOIN rrhh.cargos c
+            ON c.idcargo = e.idcargo
 
-  // ============================================================
-  // OBTENER DEPENDENCIA DEL USUARIO
-  // ============================================================
+          WHERE e.idusuario = $1::uuid
 
-  async obtenerDependenciaUsuario(idUsuario: string) {
-    const resultado = await this.dataSource.query(
-      `
-        SELECT
-          u.idusuario,
-          e.emailinstitucional,
-          c.idcargo,
-          c.nomcargo,
-          d.iddependencia,
-          d.nomdependencia
-        FROM core.usuarios u
-
-        INNER JOIN rrhh.empleados e
-          ON e.idusuario = u.idusuario
-
-        INNER JOIN rrhh.cargos c
-          ON c.idcargo = e.idcargo
-
-        LEFT JOIN rrhh.dependencias d
-          ON d.iddependencia = c.iddependencia
-
-        WHERE u.idusuario = $1::uuid
-
-        LIMIT 1
-      `,
+          LIMIT 1
+        `,
       [idUsuario],
     );
 
-    const usuario = resultado?.[0];
-
-    if (!usuario) {
-      throw new NotFoundException('El usuario no está vinculado a un empleado');
+    if (!dependenciaUsuario?.length) {
+      throw new BadRequestException('El usuario no tiene una dependencia asociada.');
     }
 
-    if (usuario.iddependencia === null || usuario.iddependencia === undefined) {
-      throw new BadRequestException('El usuario no tiene una dependencia asociada a su cargo');
+    const dependenciaActual = Number(dependenciaUsuario[0].iddependencia);
+
+    // -------------------------------------------------
+    // VALIDAR QUE LA DEPENDENCIA SELECCIONADA
+    // CORRESPONDA AL EMPLEADO
+    // -------------------------------------------------
+
+    if (dependenciaActual !== Number(idDependencia)) {
+      throw new BadRequestException(
+        'La dependencia seleccionada no corresponde a la dependencia actual del usuario.',
+      );
     }
 
-    return {
-      idUsuario: usuario.idusuario,
-      emailInstitucional: usuario.emailinstitucional,
-      idCargo:
-        usuario.idcargo !== null && usuario.idcargo !== undefined ? Number(usuario.idcargo) : null,
-      nomCargo: usuario.nomcargo ?? null,
-      idDependencia: Number(usuario.iddependencia),
-      nomDependencia: usuario.nomdependencia ?? null,
-    };
+    // -------------------------------------------------
+    // BUSCAR SI YA EXISTE OTRO JEFE INMEDIATO
+    // ACTIVO EN ESA DEPENDENCIA
+    // -------------------------------------------------
+
+    const jefeExistente = await manager.query(
+      `
+          SELECT
+            ur.idusuario
+          FROM core.usuario_roles ur
+
+          INNER JOIN core.usuarios u
+            ON u.idusuario =
+               ur.idusuario
+
+          INNER JOIN rrhh.empleados e
+            ON e.idusuario =
+               u.idusuario
+
+          INNER JOIN rrhh.cargos c
+            ON c.idcargo =
+               e.idcargo
+
+          WHERE ur.idrol = 2
+
+            AND c.iddependencia =
+                $1::integer
+
+            AND u.activo = true
+
+            AND ur.idusuario <>
+                $2::uuid
+
+          LIMIT 1
+        `,
+      [idDependencia, idUsuario],
+    );
+
+    if (jefeExistente?.length) {
+      throw new ConflictException(
+        'Ya existe un Jefe Inmediato activo para la dependencia seleccionada.',
+      );
+    }
   }
-  // ============================================================
+
+  // =========================================================
   // ACTUALIZAR ÚLTIMO ACCESO
-  // ============================================================
+  // =========================================================
 
   async actualizarUltimoAcceso(idUsuario: string): Promise<void> {
     await this.repo.update(
@@ -530,9 +634,9 @@ export class UsuariosService {
     );
   }
 
-  // ============================================================
+  // =========================================================
   // HEATMAP DE ACTIVIDADES
-  // ============================================================
+  // =========================================================
 
   async obtenerHeatmapActividades(email: string): Promise<unknown> {
     const result = await this.dataSource.query(
@@ -546,9 +650,9 @@ export class UsuariosService {
     return result[0]['obtener_heatmap_actividades_usuario'];
   }
 
-  // ============================================================
-  // RESTABLECER CONTRASEÑA
-  // ============================================================
+  // =========================================================
+  // RESTABLECER PASSWORD
+  // =========================================================
 
   async resetPassword(idUsuario: string): Promise<{
     message: string;
@@ -571,9 +675,9 @@ export class UsuariosService {
     };
   }
 
-  // ============================================================
-  // ASIGNAR CONTRASEÑA TEMPORAL
-  // ============================================================
+  // =========================================================
+  // ASIGNAR PASSWORD TEMPORAL
+  // =========================================================
 
   async asignarPasswordTemporal(idUsuario: string, nuevaPassword: string) {
     const passwordLimpia = nuevaPassword?.trim();
@@ -585,7 +689,6 @@ export class UsuariosService {
     const resultado = await this.dataSource.query(
       `
           UPDATE core.usuarios
-
           SET
             contrasena = crypt(
               $2::text,
@@ -619,9 +722,9 @@ export class UsuariosService {
     };
   }
 
-  // ============================================================
-  // CAMBIAR CONTRASEÑA
-  // ============================================================
+  // =========================================================
+  // CAMBIAR PASSWORD
+  // =========================================================
 
   async cambiarPassword(
     idUsuario: string,
@@ -644,7 +747,9 @@ export class UsuariosService {
 
           FROM core.usuarios
 
-          WHERE idusuario = $2::uuid
+          WHERE idusuario =
+                $2::uuid
+
             AND activo = TRUE
         `,
       [passwordActual, idUsuario],
@@ -657,7 +762,6 @@ export class UsuariosService {
     const resultado = await this.dataSource.query(
       `
           UPDATE core.usuarios
-
           SET
             contrasena = crypt(
               $1::text,
@@ -666,9 +770,11 @@ export class UsuariosService {
 
             debecambiarpassword = FALSE,
 
-            actualizadoen = CURRENT_DATE
+            actualizadoen =
+              CURRENT_DATE
 
-          WHERE idusuario = $2::uuid
+          WHERE idusuario =
+                $2::uuid
 
           RETURNING idusuario
         `,

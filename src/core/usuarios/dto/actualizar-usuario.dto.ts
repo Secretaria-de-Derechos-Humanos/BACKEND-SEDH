@@ -1,4 +1,13 @@
-import { IsBoolean, IsInt, IsOptional, IsString, MinLength } from 'class-validator';
+import {
+  IsArray,
+  IsBoolean,
+  IsInt,
+  IsOptional,
+  IsString,
+  MinLength,
+  ArrayNotEmpty,
+} from 'class-validator';
+
 import { ApiProperty } from '@nestjs/swagger';
 
 export class ActualizarUsuarioDto {
@@ -9,13 +18,15 @@ export class ActualizarUsuarioDto {
 
   @ApiProperty({
     required: false,
-    type: Number,
-    example: 5,
-    description: 'Rol que tendrá el usuario.',
+    type: [Number],
+    example: [1, 5],
+    description: 'Roles que tendrá el usuario. Permite múltiples roles.',
   })
   @IsOptional()
-  @IsInt()
-  idRol?: number;
+  @IsArray()
+  @ArrayNotEmpty()
+  @IsInt({ each: true })
+  idRoles?: number[];
 
   @ApiProperty({
     required: false,
@@ -24,7 +35,9 @@ export class ActualizarUsuarioDto {
   @IsInt()
   idDependencia?: number;
 
-  @ApiProperty({ required: false })
+  @ApiProperty({
+    required: false,
+  })
   @IsOptional()
   @IsString()
   @MinLength(8, {
@@ -32,7 +45,9 @@ export class ActualizarUsuarioDto {
   })
   contrasena?: string;
 
-  @ApiProperty({ required: false })
+  @ApiProperty({
+    required: false,
+  })
   @IsOptional()
   @IsString()
   actualizadoPor?: string;
