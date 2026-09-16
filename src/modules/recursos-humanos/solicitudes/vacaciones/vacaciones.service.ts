@@ -897,53 +897,20 @@ export class VacacionesService {
 
     await this.prepararCicloVacaciones(dto.idUsuario, idUsuarioAccion);
 
-    const contexto = await this.obtenerContextoVacaciones(dto.idUsuario);
-
     return this.dataSource.transaction(async (manager) => {
       const saldoRepo = manager.getRepository(VacacionesSaldo);
 
       let saldos: VacacionesSaldo[] = [];
 
-      if (contexto.tipoContratacion === 'ACUERDO') {
-        const periodos = await this.obtenerPeriodosAcuerdo(dto.idUsuario);
-
-        const anios = periodos.map((periodo) => periodo.anio);
-
-        if (anios.length === 0) {
-          throw new BadRequestException('El empleado no tiene saldo inicial de vacaciones cargado');
-        }
-
-        saldos = await saldoRepo
-          .createQueryBuilder('saldo')
-          .setLock('pessimistic_write')
-          .where('saldo.idUsuario = :idUsuario', {
-            idUsuario: dto.idUsuario,
-          })
-          .andWhere('saldo.activo = true')
-          .andWhere('saldo.anio IN (:...anios)', {
-            anios,
-          })
-          .orderBy('saldo.anio', 'ASC')
-          .getMany();
-      } else {
-        const anioActual = new Date().getFullYear();
-
-        const saldo = await saldoRepo
-          .createQueryBuilder('saldo')
-          .setLock('pessimistic_write')
-          .where('saldo.idUsuario = :idUsuario', {
-            idUsuario: dto.idUsuario,
-          })
-          .andWhere('saldo.anio = :anio', {
-            anio: anioActual,
-          })
-          .andWhere('saldo.activo = true')
-          .getOne();
-
-        if (saldo) {
-          saldos = [saldo];
-        }
-      }
+      saldos = await saldoRepo
+        .createQueryBuilder('saldo')
+        .setLock('pessimistic_write')
+        .where('saldo.idUsuario = :idUsuario', {
+          idUsuario: dto.idUsuario,
+        })
+        .andWhere('saldo.activo = true')
+        .orderBy('saldo.anio', 'ASC')
+        .getMany();
 
       if (saldos.length === 0) {
         throw new BadRequestException(
