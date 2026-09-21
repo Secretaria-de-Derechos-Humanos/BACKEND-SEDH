@@ -39,23 +39,47 @@ export class UsuariosService {
 
   async findAllWithRoles(): Promise<any[]> {
     const usuariosRaw = await this.repo.query(`
-      SELECT
-        u.idusuario,
-        u.emailinstitucional,
-        u.prinombre,
-        u.segnombre,
-        u.priapellido,
-        u.segapellido,
-        u.activo,
-        r.idrol,
-        r.nomrol
-      FROM core.usuarios u
-      LEFT JOIN core.usuario_roles ur
-        ON u.idusuario = ur.idusuario
-      LEFT JOIN core.roles r
-        ON ur.idrol = r.idrol
-      ORDER BY u.emailinstitucional ASC
-    `);
+    SELECT
+      u.idusuario,
+      u.emailinstitucional,
+
+      COALESCE(
+        NULLIF(TRIM(u.prinombre), ''),
+        NULLIF(TRIM(e.prinombre), '')
+      ) AS prinombre,
+
+      COALESCE(
+        NULLIF(TRIM(u.segnombre), ''),
+        NULLIF(TRIM(e.segnombre), '')
+      ) AS segnombre,
+
+      COALESCE(
+        NULLIF(TRIM(u.priapellido), ''),
+        NULLIF(TRIM(e.priapellido), '')
+      ) AS priapellido,
+
+      COALESCE(
+        NULLIF(TRIM(u.segapellido), ''),
+        NULLIF(TRIM(e.segapellido), '')
+      ) AS segapellido,
+
+      u.activo,
+      r.idrol,
+      r.nomrol
+
+    FROM core.usuarios u
+
+    LEFT JOIN rrhh.empleados e
+      ON e.idusuario = u.idusuario
+
+    LEFT JOIN core.usuario_roles ur
+      ON u.idusuario = ur.idusuario
+
+    LEFT JOIN core.roles r
+      ON ur.idrol = r.idrol
+
+    ORDER BY u.emailinstitucional ASC
+  `);
 
     const resultado = usuariosRaw.reduce((usuarios: any[], fila: any) => {
       let usuario = usuarios.find((item) => item.idusuario === fila.idusuario);
@@ -387,10 +411,6 @@ export class UsuariosService {
       message: 'Dependencia obtenida correctamente.',
     };
   }
-
-  // =========================================================
-  // ACTUALIZAR USUARIO
-  // =========================================================
 
   // =========================================================
   // ACTUALIZAR USUARIO
