@@ -47,18 +47,22 @@ export class EmpleadosController {
   buscarEmpleadoAdmin(@Body() dto: BuscarEmpleadoAdminDto, @Req() req: RequestAutenticada) {
     const usuario = req.user;
 
-    const accesoModulo = usuario.roles?.find(
-      (acceso) => Array.isArray(acceso.m) && acceso.m.some((idModulo) => Number(idModulo) === 1),
+    if (!usuario?.email) {
+      throw new BadRequestException('No se pudo identificar al usuario autenticado');
+    }
+
+    const accesoRol = usuario.roles?.find(
+      (acceso) => acceso?.r !== undefined && acceso?.r !== null,
     );
 
-    if (!accesoModulo) {
-      throw new BadRequestException('El usuario autenticado no tiene acceso al módulo de RRHH');
+    if (!accesoRol) {
+      throw new BadRequestException('No se pudo identificar el rol del usuario autenticado');
     }
 
     return this.empleadosService.buscarEmpleadoAdmin(
       dto.emailEmpleado,
       usuario.email,
-      Number(accesoModulo.r),
+      Number(accesoRol.r),
       1,
     );
   }
