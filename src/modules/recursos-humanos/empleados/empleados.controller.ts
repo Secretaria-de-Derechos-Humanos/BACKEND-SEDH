@@ -46,7 +46,10 @@ export class EmpleadosController {
   @RequiereModulo(1)
   buscarEmpleadoAdmin(@Body() dto: BuscarEmpleadoAdminDto, @Req() req: RequestAutenticada) {
     const usuario = req.user;
-    const accesoModulo = usuario.roles?.find((acceso) => Number(acceso.m) === 1);
+
+    const accesoModulo = usuario.roles?.find(
+      (acceso) => Array.isArray(acceso.m) && acceso.m.some((idModulo) => Number(idModulo) === 1),
+    );
 
     if (!accesoModulo) {
       throw new BadRequestException('El usuario autenticado no tiene acceso al módulo de RRHH');
@@ -56,7 +59,7 @@ export class EmpleadosController {
       dto.emailEmpleado,
       usuario.email,
       Number(accesoModulo.r),
-      Number(accesoModulo.m),
+      1,
     );
   }
 
