@@ -1,6 +1,6 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { In, Repository } from 'typeorm';
+import { DataSource, In, Repository } from 'typeorm';
 import { PermisoPersonal } from '../solicitudes/permisos-personales/entities/permiso-personal.entity';
 import { PermisoOficial } from '../solicitudes/permisos-oficiales/entities/permiso-oficial.entity';
 import { EstadoSolicitud } from '../catalogos/entities/estado-solicitud.entity';
@@ -20,6 +20,8 @@ export class AprobacionesService {
 
     @InjectRepository(EstadoSolicitud)
     private readonly estadoSolicitudRepo: Repository<EstadoSolicitud>,
+
+    private readonly dataSource: DataSource,
   ) {}
 
   /**
@@ -37,8 +39,12 @@ export class AprobacionesService {
     });
   }
 
+  /**
+   * Lista todas las solicitudes que están EN PROCESO.
+   */
   async listarPendientes() {
     const estadoEnProceso = await this.obtenerEstadoPorNombre('EN PROCESO');
+
     const [permisosPersonales, permisosOficiales, solicitudesVacaciones] = await Promise.all([
       // Permisos personales
       this.permisoPersonalRepo.find({
@@ -93,9 +99,11 @@ export class AprobacionesService {
       categoria: 'PERMISO_PERSONAL',
       origen: 'PERSONAL',
       emailInstitucional: permiso.emailInstitucional,
+
       tipoSolicitud: {
         nomTipo: permiso.tipoSolicitud?.nomTipo ?? 'PERMISO PERSONAL',
       },
+
       fecSolicitud: permiso.fecSolicitud,
       horSalida: permiso.horSalida,
       horRetorno: permiso.horRetorno,
@@ -109,6 +117,7 @@ export class AprobacionesService {
       fecRetorno: null,
       cantVacaciones: null,
       totDiasRestantes: null,
+
       estado: permiso.estadoSolicitud?.nomEstado ?? 'EN PROCESO',
     }));
 
@@ -120,12 +129,15 @@ export class AprobacionesService {
       idPermisoPersonal: permiso.idPermisoOficial,
       idPermisoOficial: permiso.idPermisoOficial,
       idPermisoVaca: null,
+
       categoria: 'PERMISO_OFICIAL',
       origen: 'OFICIAL',
       emailInstitucional: permiso.emailInstitucional,
+
       tipoSolicitud: {
         nomTipo: permiso.tipoSolicitud?.nomTipo ?? 'PERMISO OFICIAL',
       },
+
       fecSolicitud: permiso.fecSolicitud,
       horSalida: permiso.horSalida,
       horRetorno: permiso.horRetorno,
@@ -145,20 +157,26 @@ export class AprobacionesService {
 
     const vacaciones = solicitudesVacaciones.map((vacacion) => ({
       id: vacacion.idPermisoVaca,
+
       // Identificador común para la tabla actual.
       idPermisoPersonal: vacacion.idPermisoVaca,
       idPermisoOficial: null,
       idPermisoVaca: vacacion.idPermisoVaca,
+
       categoria: 'VACACIONES',
       origen: 'VACACIONES',
       emailInstitucional: vacacion.emailInstitucional,
+
       tipoSolicitud: {
         nomTipo: vacacion.tipoSolicitud?.nomTipo ?? 'VACACIONES',
       },
+
       fecSolicitud: vacacion.fecSolicitud,
+
       // Las vacaciones no manejan horas.
       horSalida: null,
       horRetorno: null,
+
       // Se utiliza esta propiedad común
       // para mostrar la cantidad de días.
       horSolicitadas: vacacion.cantVacaciones,
@@ -179,6 +197,7 @@ export class AprobacionesService {
       observaciones: vacacion.observaciones,
       cargo: vacacion.cargo,
       tipoContratacion: vacacion.tipoContratacion,
+
       estado: vacacion.estadoSolicitud?.nomEstado ?? 'EN PROCESO',
     }));
 
@@ -193,7 +212,9 @@ export class AprobacionesService {
    */
   async listarHistorial() {
     const estadoAprobado = await this.obtenerEstadoPorNombre('APROBADO');
+
     const estadoRechazado = await this.obtenerEstadoPorNombre('RECHAZADO');
+
     const permisos = await this.permisoPersonalRepo.find({
       where: {
         idEstadoSolicitud: In([
@@ -214,7 +235,9 @@ export class AprobacionesService {
       id: permiso.idPermisoPersonal,
       categoria: 'PERMISO_PERSONAL',
       emailInstitucional: permiso.emailInstitucional,
+
       tipoSolicitud: permiso.tipoSolicitud?.nomTipo ?? 'PERMISO PERSONAL',
+
       fechaSolicitud: permiso.fecSolicitud,
       horaSalida: permiso.horSalida,
       horaRetorno: permiso.horRetorno,
@@ -222,7 +245,9 @@ export class AprobacionesService {
       horasDisponibles: permiso.idHorasDisponibles,
       motivo: permiso.motivo,
       emergencia: permiso.catEmergencia ?? false,
+
       estado: permiso.estadoSolicitud?.nomEstado ?? 'SIN ESTADO',
+
       procesadoPor: permiso.priAprobacion,
       segundaAprobacion: permiso.segAprobacion,
       motivoRechazo: permiso.motRechazo,
@@ -245,14 +270,20 @@ export class AprobacionesService {
     if (!permiso) {
       throw new NotFoundException(`Permiso personal ${idPermisoPersonal} no encontrado`);
     }
+
     const estadoEnProceso = await this.obtenerEstadoPorNombre('EN PROCESO');
+
     if (permiso.idEstadoSolicitud !== estadoEnProceso.idEstadoSolicitud) {
       throw new BadRequestException('La solicitud ya fue aprobada o rechazada');
     }
+
     const estadoAprobado = await this.obtenerEstadoPorNombre('APROBADO');
+
     permiso.idEstadoSolicitud = estadoAprobado.idEstadoSolicitud;
+
     permiso.priAprobacion = emailAprobador;
     permiso.motRechazo = null;
+
     const actualizado = await this.permisoPersonalRepo.save(permiso);
 
     /*
@@ -271,9 +302,11 @@ export class AprobacionesService {
     motivoRechazo: string,
   ) {
     const motivo = motivoRechazo?.trim();
+
     if (!motivo) {
       throw new BadRequestException('Debe ingresar el motivo del rechazo');
     }
+
     const permiso = await this.permisoPersonalRepo.findOne({
       where: {
         idPermisoPersonal,
@@ -286,16 +319,23 @@ export class AprobacionesService {
     if (!permiso) {
       throw new NotFoundException(`Permiso personal ${idPermisoPersonal} no encontrado`);
     }
+
     const estadoEnProceso = await this.obtenerEstadoPorNombre('EN PROCESO');
+
     if (permiso.idEstadoSolicitud !== estadoEnProceso.idEstadoSolicitud) {
       throw new BadRequestException('La solicitud ya fue aprobada o rechazada');
     }
+
     const estadoRechazado = await this.obtenerEstadoPorNombre('RECHAZADO');
+
     permiso.idEstadoSolicitud = estadoRechazado.idEstadoSolicitud;
+
     permiso.priAprobacion = emailAprobador;
     permiso.motRechazo = motivo.substring(0, 100);
+
     return this.permisoPersonalRepo.save(permiso);
   }
+
   /**
    * Aprobar permiso oficial.
    */
@@ -322,6 +362,7 @@ export class AprobacionesService {
     const estadoAprobado = await this.obtenerEstadoPorNombre('APROBADO');
 
     permiso.idEstadoSolicitud = estadoAprobado.idEstadoSolicitud;
+
     permiso.priAprobacion = emailAprobador;
     permiso.motRechazo = null;
 
@@ -330,6 +371,12 @@ export class AprobacionesService {
 
   /**
    * Rechazar permiso oficial.
+   *
+   * Flujo permitido:
+   * EN PROCESO -> RECHAZADO
+   *
+   * El rechazo NO requiere que el permiso
+   * haya sido aprobado previamente.
    */
   async rechazarPermisoOficial(
     idPermisoOficial: string,
@@ -355,6 +402,10 @@ export class AprobacionesService {
       throw new NotFoundException(`Permiso oficial ${idPermisoOficial} no encontrado`);
     }
 
+    /*
+     * El permiso solamente puede rechazarse
+     * cuando todavía está EN PROCESO.
+     */
     const estadoEnProceso = await this.obtenerEstadoPorNombre('EN PROCESO');
 
     if (permiso.idEstadoSolicitud !== estadoEnProceso.idEstadoSolicitud) {
@@ -363,12 +414,42 @@ export class AprobacionesService {
 
     const estadoRechazado = await this.obtenerEstadoPorNombre('RECHAZADO');
 
-    permiso.idEstadoSolicitud = estadoRechazado.idEstadoSolicitud;
-    permiso.priAprobacion = emailAprobador;
-    permiso.motRechazo = motivo.substring(0, 100);
+    const motivoFinal = motivo.substring(0, 100);
 
-    return this.permisosOficialesRepo.save(permiso);
+    /*
+     * Se utiliza UPDATE directo porque el guardado
+     * mediante TypeORM estaba conservando el motivo
+     * y el aprobador, pero no estaba persistiendo
+     * correctamente el idestadosolicitud.
+     */
+    await this.dataSource.query(
+      `
+        UPDATE rrhh.permisos_oficiales
+        SET
+          idestadosolicitud = $2::uuid,
+          priaprobacion = $3,
+          motrechazo = $4,
+          actualizadoen = CURRENT_DATE,
+          actualizadopor = $3
+        WHERE idpermisooficial = $1::uuid
+      `,
+      [idPermisoOficial, estadoRechazado.idEstadoSolicitud, emailAprobador, motivoFinal],
+    );
+
+    /*
+     * Se vuelve a consultar el registro para devolver
+     * el estado actualizado y la relación estadoSolicitud.
+     */
+    return this.permisosOficialesRepo.findOne({
+      where: {
+        idPermisoOficial,
+      },
+      relations: {
+        estadoSolicitud: true,
+      },
+    });
   }
+
   /**
    * Busca un estado ignorando
    * mayúsculas, minúsculas y espacios.
