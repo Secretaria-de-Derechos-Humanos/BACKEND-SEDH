@@ -328,14 +328,31 @@ export class AprobacionesService {
 
     const estadoRechazado = await this.obtenerEstadoPorNombre('RECHAZADO');
 
-    permiso.idEstadoSolicitud = estadoRechazado.idEstadoSolicitud;
+    const motivoFinal = motivo.substring(0, 100);
 
-    permiso.priAprobacion = emailAprobador;
-    permiso.motRechazo = motivo.substring(0, 100);
+    await this.dataSource.query(
+      `
+      UPDATE rrhh.permisos_personales
+      SET
+        idestadosolicitud = $2::uuid,
+        priaprobacion = $3,
+        motrechazo = $4,
+        actualizadoen = CURRENT_DATE,
+        actualizadopor = $3
+      WHERE idpermisopersonal = $1::uuid
+    `,
+      [idPermisoPersonal, estadoRechazado.idEstadoSolicitud, emailAprobador, motivoFinal],
+    );
 
-    return this.permisoPersonalRepo.save(permiso);
+    return this.permisoPersonalRepo.findOne({
+      where: {
+        idPermisoPersonal,
+      },
+      relations: {
+        estadoSolicitud: true,
+      },
+    });
   }
-
   /**
    * Aprobar permiso oficial.
    */
