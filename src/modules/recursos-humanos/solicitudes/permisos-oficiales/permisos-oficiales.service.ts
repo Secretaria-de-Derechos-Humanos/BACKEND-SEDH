@@ -11,7 +11,7 @@ import { DataSource, Repository } from 'typeorm';
 import { PermisoOficial } from './entities/permiso-oficial.entity';
 import { InsertarPermisoOficialDto } from './dto/insertar-permiso-oficial.dto';
 import { NotificacionesService } from '../../notificaciones/notificaciones.service';
-
+import { RegistrarPermisoOficialManualDto } from './dto/registrar-permiso-oficial-manual.dto';
 @Injectable()
 export class PermisosOficialesService {
   private readonly logger = new Logger(PermisosOficialesService.name);
@@ -266,6 +266,165 @@ export class PermisosOficialesService {
     }
   }
 
+  async registrarPermisoOficialManual(
+    dto: RegistrarPermisoOficialManualDto,
+    emailResponsable: string,
+  ): Promise<Record<string, unknown>> {
+    return this.dataSource.transaction(async (manager) => {
+      const emailEmpleado = dto.emailEmpleado.trim().toLowerCase();
+      const emailAuditoria = emailResponsable.trim().toLowerCase();
+
+      // Validar el orden de las fechas.
+      const fechas = await manager.query(
+        `
+        SELECT ($2::date - $1::date) AS diferencia_dias
+        `,
+        [dto.fechaInicio, dto.fechaFinal],
+      );
+
+      if (Number(fechas[0].diferencia_dias) < 0) {
+        throw new BadRequestException('La fecha final no puede ser anterior a la fecha de inicio');
+      }
+
+      // Calcular días hábiles: lunes a viernes, inclusive.
+      // No se excluyen los días feriados.
+      const resultadoDias = await manager.query(
+        `
+        SELECT COUNT(*)::integer AS dias_laborables
+        FROM generate_series(
+          $1::date,
+          $2::date,
+          INTERVAL '1 day'
+        ) AS dia
+        WHERE EXTRACT(ISODOW FROM dia) BETWEEN 1 AND 5
+        `,
+        [dto.fechaInicio, dto.fechaFinal],
+      );
+
+      const diasLaborables = Number(resultadoDias[0].dias_laborables);
+
+      if (diasLaborables < 1) {
+        throw new BadRequestException('El rango debe incluir al menos un día de lunes a viernes');
+      }
+
+      // Verificar que exista el empleado.
+      const empleados = await manager.query(
+        `
+        SELECT emailinstitucional
+        FROM rrhh.empleados
+        WHERE LOWER(TRIM(emailinstitucional)) = $1
+        LIMIT 1
+        `,
+        [emailEmpleado],
+      );
+
+      if (!empleados.length) {
+        throw new NotFoundException('No se encontró el empleado con ese correo institucional');
+      }
+
+      // Obtener el tipo de solicitud.
+      const tipos = await manager.query(
+        `
+        SELECT idtiposolicitud
+        FROM rrhh.tipos_solicitudes_empleados
+        WHERE UPPER(TRIM(nomtipo)) = 'PERMISO OFICIAL'
+        LIMIT 1
+        `,
+      );
+
+      if (!tipos.length) {
+        throw new InternalServerErrorException('No se encontró el tipo PERMISO OFICIAL');
+      }
+
+      // Obtener el estado aprobado.
+      const estados = await manager.query(
+        `
+        SELECT idestadosolicitud
+        FROM rrhh.estados_solicitudes
+        WHERE UPPER(TRIM(nomestado)) = 'APROBADO'
+        LIMIT 1
+        `,
+      );
+
+      if (!estados.length) {
+        throw new InternalServerErrorException('No se encontró el estado APROBADO');
+      }
+
+      // Registrar directamente como aprobado.
+      // No se llama al método normal ni se envían notificaciones.
+      const insertados = await manager.query(
+        `
+        INSERT INTO rrhh.permisos_oficiales (
+          idtiposolicitud,
+          emailinstitucional,
+          fecsolicitud,
+          idestadosolicitud,
+          motivo,
+          priaprobacion,
+          segaprobacion,
+          motrechazo,
+          tiempolimite,
+          horsalida,
+          horretorno,
+          guardiaturno,
+          creadoen,
+          creadopor,
+          esmanual,
+          referenciadocumento,
+          fecinicio,
+          fecfinal,
+          diaslaborables
+        )
+        VALUES (
+          $1::uuid,
+          $2,
+          CURRENT_DATE,
+          $3::uuid,
+          $4,
+          NULL,
+          NULL,
+          NULL,
+          NULL,
+          NULL,
+          NULL,
+          NULL,
+          CURRENT_DATE,
+          $5,
+          TRUE,
+          $6,
+          $7::date,
+          $8::date,
+          $9
+        )
+        RETURNING idpermisooficial
+        `,
+        [
+          tipos[0].idtiposolicitud,
+          emailEmpleado,
+          estados[0].idestadosolicitud,
+          dto.motivo.trim(),
+          emailAuditoria,
+          dto.referenciaDocumento?.trim() || null,
+          dto.fechaInicio,
+          dto.fechaFinal,
+          diasLaborables,
+        ],
+      );
+
+      return {
+        status: 'OK',
+        message: 'Permiso oficial manual registrado como aprobado',
+        idPermisoOficial: insertados[0].idpermisooficial,
+        emailEmpleado,
+        fechaInicio: dto.fechaInicio,
+        fechaFinal: dto.fechaFinal,
+        diasLaborables,
+        esManual: true,
+        referenciaDocumento: dto.referenciaDocumento?.trim() || null,
+      };
+    });
+  }
+
   // =========================================================
   // ANULAR PERMISO OFICIAL
   // =========================================================
@@ -411,5 +570,66 @@ export class PermisosOficialesService {
         idPermiso,
       };
     });
+  }
+
+  async consultarReporteManual(fechaInicio: string, fechaFinal: string) {
+    this.validarRangoReporte(fechaInicio, fechaFinal);
+
+    const rows = await this.dataSource.query(
+      `
+      SELECT
+        po.idpermisooficial AS "idPermiso",
+        po.emailinstitucional AS "emailInstitucional",
+        po.fecinicio AS "fechaInicio",
+        po.fecfinal AS "fechaFinal",
+        po.diaslaborables AS "diasLaborables",
+        po.motivo AS motivo,
+        po.referenciadocumento AS "referenciaDocumento",
+        UPPER(TRIM(es.nomestado)) AS estado,
+        CONCAT_WS(
+          ' ',
+          e.prinombre,
+          e.segnombre,
+          e.priapellido,
+          e.segapellido
+        ) AS empleado,
+        po.creadoen AS "fechaRegistro",
+        po.creadopor AS "registradoPor"
+      FROM rrhh.permisos_oficiales po
+      INNER JOIN rrhh.estados_solicitudes es
+        ON es.idestadosolicitud = po.idestadosolicitud
+      LEFT JOIN rrhh.empleados e
+        ON LOWER(TRIM(e.emailinstitucional)) =
+           LOWER(TRIM(po.emailinstitucional))
+      WHERE po.esmanual = TRUE
+        AND po.fecinicio <= $2::date
+        AND po.fecfinal >= $1::date
+      ORDER BY po.fecinicio DESC, empleado ASC
+    `,
+      [fechaInicio, fechaFinal],
+    );
+
+    return {
+      status: 'OK',
+      total: rows.length,
+      data: rows,
+    };
+  }
+
+  private validarRangoReporte(fechaInicio: string, fechaFinal: string) {
+    const formatoFecha = /^\d{4}-\d{2}-\d{2}$/;
+
+    if (
+      !formatoFecha.test(fechaInicio) ||
+      !formatoFecha.test(fechaFinal) ||
+      Number.isNaN(Date.parse(`${fechaInicio}T00:00:00Z`)) ||
+      Number.isNaN(Date.parse(`${fechaFinal}T00:00:00Z`))
+    ) {
+      throw new BadRequestException('Las fechas deben tener el formato YYYY-MM-DD');
+    }
+
+    if (fechaInicio > fechaFinal) {
+      throw new BadRequestException('La fecha inicial no puede ser posterior a la fecha final');
+    }
   }
 }
