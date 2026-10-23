@@ -781,6 +781,17 @@ export class PermisosPersonalesService {
       const emailEmpleado = dto.emailEmpleado.trim().toLowerCase();
       const emailAuditoria = emailResponsable.trim().toLowerCase();
       const horas = dto.horas.length === 5 ? `${dto.horas}:00` : dto.horas;
+      const horaSalida = dto.horaSalida?.trim()
+        ? dto.horaSalida.length === 5
+          ? `${dto.horaSalida}:00`
+          : dto.horaSalida
+        : null;
+      const horaRegreso = dto.horaRegreso?.trim()
+        ? dto.horaRegreso.length === 5
+          ? `${dto.horaRegreso}:00`
+          : dto.horaRegreso
+        : null;
+      const observacion = dto.observacion?.trim() || null;
 
       // 1. Validar las horas autorizadas.
       const resultadoMinutos = await manager.query(
@@ -985,7 +996,8 @@ export class PermisosPersonalesService {
         creadoen,
         creadopor,
         esmanual,
-        referenciadocumento
+        referenciadocumento,
+        observacion
       )
       VALUES (
         $1::uuid,
@@ -1000,13 +1012,14 @@ export class PermisosPersonalesService {
         NULL,
         NULL,
         NULL,
-        NULL,
-        NULL,
+        $11::time,
+        $12::time,
         NULL,
         CURRENT_DATE,
         $9,
         TRUE,
-        $10
+        $10,
+        $13
       )
       RETURNING idpermisopersonal
       `,
@@ -1021,6 +1034,9 @@ export class PermisosPersonalesService {
           dto.emergencia ?? false,
           emailAuditoria,
           dto.referenciaDocumento?.trim() || null,
+          horaSalida,
+          horaRegreso,
+          observacion,
         ],
       );
 
@@ -1049,6 +1065,9 @@ export class PermisosPersonalesService {
         horas,
         esmanual: true,
         referenciaDocumento: dto.referenciaDocumento?.trim() || null,
+        horaSalida,
+        horaRegreso,
+        observacion,
         minutosSolicitados,
         disponibleDiaMinutos: 180 - consumidoDia - minutosSolicitados,
         disponibleMesMinutos: minutosRestantesMes,
@@ -1067,6 +1086,9 @@ export class PermisosPersonalesService {
         pp.horsolicitadas::text AS horas,
         pp.motivo AS motivo,
         pp.catemergencia AS emergencia,
+        pp.horsalida::text AS "horaSalida",
+        pp.horretorno::text AS "horaRegreso",
+        pp.observacion AS observacion,
         pp.referenciadocumento AS "referenciaDocumento",
         UPPER(TRIM(es.nomestado)) AS estado,
         CONCAT_WS(
@@ -1162,6 +1184,17 @@ export class PermisosPersonalesService {
       const fecha = dto.fechaLlegada;
       const horaLlegada =
         dto.horaLlegadaReal.length === 5 ? `${dto.horaLlegadaReal}:00` : dto.horaLlegadaReal;
+      const horaSalida = dto.horaSalida?.trim()
+        ? dto.horaSalida.length === 5
+          ? `${dto.horaSalida}:00`
+          : dto.horaSalida
+        : null;
+      const horaRegreso = dto.horaRegreso?.trim()
+        ? dto.horaRegreso.length === 5
+          ? `${dto.horaRegreso}:00`
+          : dto.horaRegreso
+        : null;
+      const observacion = dto.observacion?.trim() || null;
 
       if (!/^\d{4}-\d{2}-\d{2}$/.test(fecha)) {
         throw new BadRequestException('La fecha debe tener el formato YYYY-MM-DD');
@@ -1292,7 +1325,10 @@ export class PermisosPersonalesService {
           estado,
           minutos_descontados,
           creadoen,
-          creadopor
+          creadopor,
+          hora_salida,
+          hora_regreso,
+          observacion
         )
         VALUES (
           $1,
@@ -1306,7 +1342,10 @@ export class PermisosPersonalesService {
           'APROBADO',
           $5,
           CURRENT_DATE,
-          $8
+          $8,
+          $9::time,
+          $10::time,
+          $11
         )
         RETURNING
           idjustificacion AS "idJustificacion",
@@ -1317,6 +1356,9 @@ export class PermisosPersonalesService {
           minutos_retraso AS "minutosRetraso",
           motivo,
           referenciadocumento AS "referenciaDocumento",
+          hora_salida::text AS "horaSalida",
+          hora_regreso::text AS "horaRegreso",
+          observacion,
           estado,
           minutos_descontados AS "minutosDescontados"
         `,
@@ -1329,6 +1371,9 @@ export class PermisosPersonalesService {
           dto.motivo.trim(),
           dto.referenciaDocumento?.trim() || null,
           emailAuditoria,
+          horaSalida,
+          horaRegreso,
+          observacion,
         ],
       );
 
@@ -1375,6 +1420,9 @@ export class PermisosPersonalesService {
         j.minutos_retraso AS "minutosRetraso",
         j.motivo,
         j.referenciadocumento AS "referenciaDocumento",
+        j.hora_salida::text AS "horaSalida",
+        j.hora_regreso::text AS "horaRegreso",
+        j.observacion,
         j.estado,
         j.minutos_descontados AS "minutosDescontados",
         j.creadoen AS "fechaRegistro",

@@ -373,7 +373,8 @@ export class PermisosOficialesService {
           referenciadocumento,
           fecinicio,
           fecfinal,
-          diaslaborables
+          diaslaborables,
+          observacion
         )
         VALUES (
           $1::uuid,
@@ -385,8 +386,8 @@ export class PermisosOficialesService {
           NULL,
           NULL,
           NULL,
-          NULL,
-          NULL,
+          $10::time,
+          $11::time,
           NULL,
           CURRENT_DATE,
           $5,
@@ -394,7 +395,8 @@ export class PermisosOficialesService {
           $6,
           $7::date,
           $8::date,
-          $9
+          $9,
+          $12
         )
         RETURNING idpermisooficial
         `,
@@ -408,6 +410,9 @@ export class PermisosOficialesService {
           dto.fechaInicio,
           dto.fechaFinal,
           diasLaborables,
+          dto.horaSalida?.trim() || null,
+          dto.horaRegreso?.trim() || null,
+          dto.observacion?.trim() || null,
         ],
       );
 
@@ -419,6 +424,9 @@ export class PermisosOficialesService {
         fechaInicio: dto.fechaInicio,
         fechaFinal: dto.fechaFinal,
         diasLaborables,
+        horaSalida: dto.horaSalida?.trim() || null,
+        horaRegreso: dto.horaRegreso?.trim() || null,
+        observacion: dto.observacion?.trim() || null,
         esManual: true,
         referenciaDocumento: dto.referenciaDocumento?.trim() || null,
       };
@@ -583,6 +591,9 @@ export class PermisosOficialesService {
         po.fecinicio AS "fechaInicio",
         po.fecfinal AS "fechaFinal",
         po.diaslaborables AS "diasLaborables",
+        po.horsalida::text AS "horaSalida",
+        po.horretorno::text AS "horaRegreso",
+        po.observacion AS observacion,
         po.motivo AS motivo,
         po.referenciadocumento AS "referenciaDocumento",
         UPPER(TRIM(es.nomestado)) AS estado,
