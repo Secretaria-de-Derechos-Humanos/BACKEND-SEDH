@@ -8,6 +8,7 @@ import { SolicitudesAgenteSeguridadService } from './solicitudes-agente-segurida
 import { CargarSolicitudesAgenteDto } from './dto/cargar-solicitudes-agente.dto';
 import { RegistrarHoraSalidaDto } from './dto/registrar-hora-salida.dto';
 import { RegistrarHoraRetornoDto } from './dto/registrar-hora-retorno.dto';
+import { MarcarNoRetornoDto } from './dto/marcar-no-retorno.dto';
 
 type RequestAutenticada = Request & {
   user: JwtPayload;
@@ -44,5 +45,12 @@ export class SolicitudesAgenteSeguridadController {
   })
   registrarHoraRetorno(@Req() request: RequestAutenticada, @Body() body: RegistrarHoraRetornoDto) {
     return this.solicitudesAgenteSeguridadService.registrarHoraRetorno(body, request.user);
+  }
+  @Post('no-retorno')
+  @ApiOperation({
+    summary: 'Marcar un permiso personal como no retornado',
+  })
+  marcarNoRetorno(@Req() request: RequestAutenticada, @Body() body: MarcarNoRetornoDto) {
+    return this.solicitudesAgenteSeguridadService.marcarNoRetorno(body, request.user);
   }
 }

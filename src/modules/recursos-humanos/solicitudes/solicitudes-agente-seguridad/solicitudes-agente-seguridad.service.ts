@@ -12,6 +12,7 @@ import { CargarSolicitudesAgenteDto } from './dto/cargar-solicitudes-agente.dto'
 import { RegistrarHoraSalidaDto } from './dto/registrar-hora-salida.dto';
 import { RegistrarHoraRetornoDto } from './dto/registrar-hora-retorno.dto';
 import { JwtPayload } from '../../../../core/auth/strategies/jwt.strategy';
+import { MarcarNoRetornoDto } from './dto/marcar-no-retorno.dto';
 
 @Injectable()
 export class SolicitudesAgenteSeguridadService {
@@ -56,6 +57,9 @@ export class SolicitudesAgenteSeguridadService {
 
             pp.horretorno::text
               AS "horaRetorno",
+
+            pp.estadoretorno
+              AS "estadoRetorno",
 
             pp.emailinstitucional
               AS email,
@@ -149,18 +153,12 @@ export class SolicitudesAgenteSeguridadService {
       const rows = await this.dataSource.query(
         `
           UPDATE rrhh.permisos_personales
-          SET
-            horsalida =
-              $2::time,
-
-            guardiaturno =
-              $3,
-
-            actualizadoen =
-              CURRENT_DATE,
-
-            actualizadopor =
-              $3
+         SET
+            horsalida = $2::time,
+            estadoretorno = 'FUERA',
+            guardiaturno = $3,
+            actualizadoen = CURRENT_DATE,
+            actualizadopor = $3
 
           WHERE idpermisopersonal =
                 $1::uuid
@@ -209,13 +207,14 @@ export class SolicitudesAgenteSeguridadService {
       return await this.dataSource.transaction(async (manager) => {
         const permisos = await manager.query(
           `
-                SELECT
-                  idpermisopersonal,
-                  emailinstitucional,
-                  horsolicitadas,
-                  horsalida,
-                  horretorno
-                FROM rrhh.permisos_personales
+            SELECT
+              idpermisopersonal,
+              emailinstitucional,
+              horsolicitadas,
+              horsalida,
+              horretorno,
+              estadoretorno
+            FROM rrhh.permisos_personales
                 WHERE idpermisopersonal =
                       $1::uuid
                 FOR UPDATE
@@ -231,6 +230,12 @@ export class SolicitudesAgenteSeguridadService {
         if (!permiso.horsalida) {
           throw new BadRequestException('Debe registrar primero la hora de salida');
         }
+        if (permiso.estadoretorno === 'NO_RETORNO') {
+          throw new BadRequestException(
+            'El permiso está marcado como no retornado y no puede registrar un retorno.',
+          );
+        }
+
         if (permiso.horretorno) {
           throw new BadRequestException('La hora de retorno ya fue registrada');
         }
@@ -268,21 +273,13 @@ export class SolicitudesAgenteSeguridadService {
         await manager.query(
           `
               UPDATE rrhh.permisos_personales
-              SET
-                horretorno =
-                  $2::time,
-
-                guardiaturno =
-                  $3,
-
-                actualizadoen =
-                  CURRENT_DATE,
-
-                actualizadopor =
-                  $3
-
-              WHERE idpermisopersonal =
-                    $1::uuid
+            SET
+                horretorno = $2::time,
+                estadoretorno = 'RETORNADO',
+                guardiaturno = $3,
+                actualizadoen = CURRENT_DATE,
+                actualizadopor = $3
+            WHERE idpermisopersonal = $1::uuid
               `,
           [dto.idPermiso, dto.horaRetorno, user.email],
         );
@@ -343,6 +340,79 @@ export class SolicitudesAgenteSeguridadService {
         throw error;
       }
       throw new InternalServerErrorException('Ocurrió un error al registrar la hora de retorno');
+    }
+  }
+
+  async marcarNoRetorno(dto: MarcarNoRetornoDto, user: JwtPayload) {
+    try {
+      this.obtenerRolAgente(user);
+
+      return await this.dataSource.transaction(async (manager) => {
+        const permisos = await manager.query(
+          `
+            SELECT
+              idpermisopersonal,
+              horsalida,
+              horretorno,
+              estadoretorno
+            FROM rrhh.permisos_personales
+            WHERE idpermisopersonal = $1::uuid
+            FOR UPDATE
+          `,
+          [dto.idPermiso],
+        );
+
+        const permiso = permisos?.[0];
+
+        if (!permiso) {
+          throw new NotFoundException('Permiso personal no encontrado');
+        }
+
+        if (!permiso.horsalida) {
+          throw new BadRequestException('Debe registrar primero la hora de salida');
+        }
+
+        if (permiso.horretorno || permiso.estadoretorno === 'RETORNADO') {
+          throw new BadRequestException('El permiso ya tiene un retorno registrado');
+        }
+
+        if (permiso.estadoretorno === 'NO_RETORNO') {
+          throw new BadRequestException('El permiso ya está marcado como no retornado');
+        }
+
+        await manager.query(
+          `
+            UPDATE rrhh.permisos_personales
+            SET
+              estadoretorno = 'NO_RETORNO',
+              guardiaturno = $2,
+              actualizadoen = CURRENT_DATE,
+              actualizadopor = $2
+            WHERE idpermisopersonal = $1::uuid
+          `,
+          [dto.idPermiso, user.email],
+        );
+
+        return {
+          status: 'OK',
+          tipo: 'PERMISO PERSONAL',
+          idpermiso: dto.idPermiso,
+          mensaje: 'Permiso marcado como no retornado',
+        };
+      });
+    } catch (error: unknown) {
+      this.logger.error(
+        'Error en marcarNoRetorno',
+        error instanceof Error ? error.stack : String(error),
+      );
+
+      if (error instanceof HttpException) {
+        throw error;
+      }
+
+      throw new InternalServerErrorException(
+        'Ocurrió un error al marcar el permiso como no retornado',
+      );
     }
   }
 }
