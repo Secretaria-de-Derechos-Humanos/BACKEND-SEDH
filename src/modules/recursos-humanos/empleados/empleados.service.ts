@@ -852,114 +852,92 @@ export class EmpleadosService {
 
         await manager.query(
           `
-              INSERT INTO rrhh.empleados (
-                emailinstitucional,
-                prinombre,
-                segnombre,
-                priapellido,
-                segapellido,
-                fecinglaborar,
-                actlaboralmente,
-                numidentidad,
-                numtelefono,
-                idtipocontratacion,
-                idcargo,
-                idsupinmediato,
-                idsexo,
-                idestadocivil,
-                idmunicipio,
-                creadoen,
-                creadopor,
-                idusuario
-              )
-              VALUES (
-                $1,
-                $2,
-                $3,
-                $4,
-                $5,
-                $6::date,
-                $7::boolean,
-                $8,
-                $9,
-                $10::uuid,
-                $11::smallint,
-                $12,
-                $13::uuid,
-                $14::uuid,
-                $15::smallint,
-                CURRENT_DATE,
-                $16,
-                $17::uuid
-              )
-            `,
+    INSERT INTO rrhh.empleados (
+      emailinstitucional,
+      prinombre,
+      segnombre,
+      priapellido,
+      segapellido,
+      fecinglaborar,
+      actlaboralmente,
+      numidentidad,
+      numtelefono,
+      idtipocontratacion,
+      idcargo,
+      idsupinmediato,
+      idsexo,
+      idestadocivil,
+      idmunicipio,
+      creadoen,
+      creadopor,
+      idusuario
+    )
+    VALUES (
+      $1::varchar,
+      $2::varchar,
+      $3::varchar,
+      $4::varchar,
+      $5::varchar,
+      $6::date,
+      $7::boolean,
+      $8::varchar,
+      $9::varchar,
+      $10::uuid,
+      $11::smallint,
+      $12::varchar,
+      $13::uuid,
+      $14::uuid,
+      $15::smallint,
+      CURRENT_DATE,
+      $16::varchar,
+      $17::uuid
+    )
+  `,
           [
             usuario.emailinstitucional,
             usuario.prinombre,
             usuario.segnombre,
             usuario.priapellido,
             usuario.segapellido,
-
             empleado.fecIngLaboral,
-
             empleado.actLaboralmente,
-
             empleado.numIdentidad.trim(),
-
             empleado.numTelefono?.trim() ?? null,
-
             empleado.idTipoContratacion,
-
             empleado.idCargo,
-
             empleado.idSupInmediato?.trim() ?? null,
-
             empleado.idSexo,
-
             empleado.idEstadoCivil,
-
             empleado.idMunicipio ?? null,
-
             emailAdmin,
-
             idUsuario,
           ],
         );
-
         // -------------------------------------------------
         // HORAS DISPONIBLES
         // -------------------------------------------------
 
+        // HORAS DISPONIBLES
         await manager.query(
           `
-              INSERT INTO rrhh.horas_disponibles (
-                emailinstitucional,
-                hordisponibles,
-                creadoen,
-                creadopor,
-                actualizadoen,
-                actualizadopor
-              )
-              SELECT
-                $1,
-                '09:00:00'::time,
-                CURRENT_DATE,
-                $2,
-                CURRENT_DATE,
-                $2
-              WHERE NOT EXISTS (
-                SELECT 1
-                FROM rrhh.horas_disponibles
-                WHERE LOWER(
-                        TRIM(
-                          emailinstitucional
-                        )
-                      ) =
-                      LOWER(
-                        TRIM($1)
-                      )
-              )
-            `,
+    INSERT INTO rrhh.horas_disponibles (
+      emailinstitucional,
+      hordisponibles,
+      creadoen,
+      creadopor,
+      actualizadoen,
+      actualizadopor
+    )
+    VALUES (
+      $1::varchar,
+      '09:00:00'::time,
+      CURRENT_DATE,
+      $2::varchar,
+      CURRENT_DATE,
+      $2::varchar
+    )
+    ON CONFLICT DO NOTHING
+  `,
           [usuario.emailinstitucional, emailAdmin],
         );
 
