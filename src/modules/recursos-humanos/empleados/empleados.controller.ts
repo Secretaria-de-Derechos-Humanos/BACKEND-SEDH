@@ -23,7 +23,7 @@ interface UsuarioJwt {
   email: string;
   roles?: Array<{
     r: number;
-    m: number[];
+    m: number[] | number;
   }>;
 }
 
@@ -89,9 +89,15 @@ export class EmpleadosController {
       throw new BadRequestException('No se pudo identificar al usuario autenticado');
     }
 
-    const accesoModulo = usuario.roles?.find(
-      (acceso) => Array.isArray(acceso.m) && acceso.m.some((idModulo) => Number(idModulo) === 1),
-    );
+    const accesoModulo = usuario.roles?.find((acceso) => {
+      const modulos = Array.isArray(acceso.m)
+        ? acceso.m
+        : acceso.m !== undefined && acceso.m !== null
+          ? [acceso.m]
+          : [];
+
+      return modulos.some((idModulo) => Number(idModulo) === 1);
+    });
 
     if (!accesoModulo) {
       throw new BadRequestException('El usuario autenticado no tiene acceso al módulo de RRHH');
