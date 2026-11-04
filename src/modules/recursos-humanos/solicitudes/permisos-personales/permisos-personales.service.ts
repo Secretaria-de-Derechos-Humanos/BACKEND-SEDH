@@ -254,30 +254,26 @@ export class PermisosPersonalesService {
     return this.dataSource.transaction(async (manager) => {
       const permisos = await manager.query(
         `
-        SELECT
-          pp.idpermisopersonal,
-          pp.emailinstitucional,
-          pp.horsolicitadas,
-          pp.horsalida,
-          pp.horretorno,
-          pp.idestadosolicitud,
-
-          UPPER(TRIM(es.nomestado)) AS nomestado
-
-        FROM rrhh.permisos_personales pp
-
-        INNER JOIN rrhh.estados_solicitudes es
-          ON es.idestadosolicitud =
-             pp.idestadosolicitud
-
-        WHERE pp.idpermisopersonal =
-              $1::uuid
-
-          AND LOWER(TRIM(pp.emailinstitucional)) =
-              LOWER(TRIM($2))
-
-        FOR UPDATE
-        `,
+      SELECT
+        pp.idpermisopersonal,
+        pp.emailinstitucional,
+        pp.fecsolicitud,
+        pp.horsolicitadas,
+        pp.catemergencia,
+        pp.horsalida,
+        pp.horretorno,
+        pp.idestadosolicitud,
+        pp.priaprobacion,
+        pp.segaprobacion,
+        UPPER(TRIM(es.nomestado)) AS nomestado
+      FROM rrhh.permisos_personales pp
+      INNER JOIN rrhh.estados_solicitudes es
+        ON es.idestadosolicitud = pp.idestadosolicitud
+      WHERE pp.idpermisopersonal = $1::uuid
+        AND LOWER(TRIM(pp.emailinstitucional)) =
+            LOWER(TRIM($2))
+      FOR UPDATE
+      `,
         [idPermiso, email],
       );
 
@@ -287,12 +283,25 @@ export class PermisosPersonalesService {
         throw new NotFoundException('El permiso no existe o no pertenece al usuario autenticado');
       }
 
+      // 1. Validar estado del permiso.
       if (permiso.nomestado !== 'EN PROCESO' && permiso.nomestado !== 'APROBADO') {
         throw new BadRequestException(
           'Solo se pueden anular permisos que estén en proceso o aprobados',
         );
       }
 
+      // 2. Impedir anulación si ya tiene las dos aprobaciones.
+      const tieneAprobacionJefe = Boolean(permiso.priaprobacion?.trim());
+
+      const tieneAprobacionRRHH = Boolean(permiso.segaprobacion?.trim());
+
+      if (tieneAprobacionJefe && tieneAprobacionRRHH) {
+        throw new BadRequestException(
+          'No se puede anular el permiso porque ya cuenta con las aprobaciones del jefe inmediato y Recursos Humanos',
+        );
+      }
+
+      // 3. Impedir anulación si el permiso ya fue utilizado.
       if (permiso.horsalida) {
         throw new BadRequestException(
           'No se puede anular el permiso porque ya se registró la hora de salida',
@@ -305,15 +314,14 @@ export class PermisosPersonalesService {
         );
       }
 
+      // 4. Obtener el estado ANULADO.
       const estadosAnulado = await manager.query(
         `
-        SELECT idestadosolicitud
-        FROM rrhh.estados_solicitudes
-        WHERE UPPER(TRIM(nomestado)) =
-              'ANULADO'
-
-        LIMIT 1
-        `,
+      SELECT idestadosolicitud
+      FROM rrhh.estados_solicitudes
+      WHERE UPPER(TRIM(nomestado)) = 'ANULADO'
+      LIMIT 1
+      `,
       );
 
       if (!estadosAnulado?.length) {
@@ -322,48 +330,97 @@ export class PermisosPersonalesService {
 
       const idEstadoAnulado = estadosAnulado[0].idestadosolicitud;
 
+      // 5. Obtener el período al que pertenece el permiso.
+      const periodoResultado = await manager.query(
+        `
+      SELECT DATE_TRUNC(
+        'month',
+        $1::date
+      )::date AS periodo
+      `,
+        [permiso.fecsolicitud],
+      );
+
+      const periodoPermiso = periodoResultado[0].periodo;
+
+      // 6. Bloquear y consultar el saldo del empleado.
+      const saldos = await manager.query(
+        `
+      SELECT
+        idhorasdisponible,
+        periodo_saldo
+      FROM rrhh.horas_disponibles
+      WHERE LOWER(TRIM(emailinstitucional)) =
+            LOWER(TRIM($1))
+      LIMIT 1
+      FOR UPDATE
+      `,
+        [permiso.emailinstitucional],
+      );
+
+      if (!saldos.length) {
+        throw new NotFoundException('No se encontró el saldo de horas del empleado');
+      }
+
+      const saldo = saldos[0];
+
+      const mismoPeriodo =
+        saldo.periodo_saldo &&
+        String(saldo.periodo_saldo).slice(0, 10) === String(periodoPermiso).slice(0, 10);
+
+      // 7. Devolver horas únicamente si corresponden al mismo mes.
+      let horasDevueltas = false;
+
+      if (
+        permiso.horsolicitadas &&
+        mismoPeriodo &&
+        !(permiso.catemergencia === true || String(permiso.catemergencia).toLowerCase() === 'true')
+      ) {
+        const actualizacion = await manager.query(
+          `
+        UPDATE rrhh.horas_disponibles
+        SET
+          hordisponibles =
+            hordisponibles +
+            (
+              $1::time - TIME '00:00:00'
+            ),
+          actualizadoen = CURRENT_DATE,
+          actualizadopor = $2
+        WHERE idhorasdisponible = $3
+          AND periodo_saldo = $4::date
+        RETURNING idhorasdisponible
+        `,
+          [permiso.horsolicitadas, email, saldo.idhorasdisponible, periodoPermiso],
+        );
+
+        if (!actualizacion.length) {
+          throw new BadRequestException('No se pudo devolver el saldo al período correspondiente');
+        }
+
+        horasDevueltas = true;
+      }
+
+      // 8. Anular el permiso dentro de la misma transacción.
       await manager.query(
         `
-        UPDATE rrhh.permisos_personales
-
-        SET
-          idestadosolicitud = $2::uuid,
-          actualizadoen = CURRENT_DATE,
-          actualizadopor = $3
-
-        WHERE idpermisopersonal =
-              $1::uuid
-        `,
+      UPDATE rrhh.permisos_personales
+      SET
+        idestadosolicitud = $2::uuid,
+        actualizadoen = CURRENT_DATE,
+        actualizadopor = $3
+      WHERE idpermisopersonal = $1::uuid
+      `,
         [idPermiso, idEstadoAnulado, email],
       );
 
-      if (permiso.horsolicitadas) {
-        await manager.query(
-          `
-          UPDATE rrhh.horas_disponibles
-
-          SET
-            hordisponibles =
-              hordisponibles +
-              (
-                $2::time -
-                TIME '00:00:00'
-              ),
-
-            actualizadoen = CURRENT_DATE,
-
-            actualizadopor = $3
-
-          WHERE LOWER(TRIM(emailinstitucional)) =
-                LOWER(TRIM($1))
-          `,
-          [email, permiso.horsolicitadas, email],
-        );
-      }
-
       return {
         status: 'OK',
-        message: 'Permiso personal anulado correctamente',
+        message: horasDevueltas
+          ? 'Permiso personal anulado correctamente y horas devueltas'
+          : permiso.catemergencia === true || String(permiso.catemergencia).toLowerCase() === 'true'
+            ? 'Permiso de emergencia anulado correctamente. No se devolvieron horas porque no fueron descontadas'
+            : 'Permiso personal anulado correctamente. No se devolvieron horas porque corresponde a otro período mensual',
         idPermiso,
       };
     });
@@ -380,90 +437,82 @@ export class PermisosPersonalesService {
 
     const rows = (await this.dataSource.query(
       `
-      WITH consumos AS (
-        SELECT
-          pp.fecsolicitud,
-
-          CASE
-            WHEN UPPER(TRIM(es.nomestado))
-                 IN ('RECHAZADO', 'ANULADO')
-              THEN 0
-
-            WHEN pp.horsalida IS NOT NULL
-                 AND pp.horretorno IS NOT NULL
-
-              THEN GREATEST(
-                EXTRACT(
-                  EPOCH FROM (
-                    pp.horretorno -
-                    pp.horsalida
-                  )
-                ) / 60,
-                0
-              )
-
-            ELSE
-              EXTRACT(
-                EPOCH FROM pp.horsolicitadas
-              ) / 60
-
-          END AS minutos_consumidos
-        FROM rrhh.permisos_personales pp
-        INNER JOIN rrhh.estados_solicitudes es
-          ON es.idestadosolicitud =
-             pp.idestadosolicitud
-
-        WHERE LOWER(TRIM(pp.emailinstitucional)) =
-              LOWER(TRIM($1))
-
-          AND EXTRACT(
-                YEAR FROM pp.fecsolicitud
-              ) =
-              EXTRACT(
-                YEAR FROM $2::date
-              )
-          AND EXTRACT(
-                MONTH FROM pp.fecsolicitud
-              ) =
-              EXTRACT(
-                MONTH FROM $2::date
-              )
-      )
-
+    WITH consumo_dia AS (
       SELECT
-
-        (
-          SELECT
-            hd.hordisponibles::text
-          FROM rrhh.horas_disponibles hd
-          WHERE LOWER(TRIM(hd.emailinstitucional)) =
-                LOWER(TRIM($1))
-          LIMIT 1
-        ) AS hordisponibles,
-
         COALESCE(
-          SUM(minutos_consumidos)
-            FILTER (
-              WHERE fecsolicitud =
-                    $2::date
-            ),
-          0
-        ) AS consumidodia,
+          SUM(
+            CASE
+              WHEN UPPER(TRIM(es.nomestado))
+                   IN ('RECHAZADO', 'ANULADO')
+                THEN 0
 
-        COALESCE(
-          SUM(minutos_consumidos),
-          0
-        ) AS consumidomes
+              WHEN pp.horsalida IS NOT NULL
+                   AND pp.horretorno IS NOT NULL
+                THEN GREATEST(
+                  EXTRACT(
+                    EPOCH FROM (
+                      pp.horretorno - pp.horsalida
+                    )
+                  ) / 60,
+                  0
+                )
 
-      FROM consumos
-      `,
+              ELSE
+                EXTRACT(
+                  EPOCH FROM pp.horsolicitadas
+                ) / 60
+            END
+          ),
+          0
+        ) AS minutos_consumidos
+      FROM rrhh.permisos_personales pp
+      INNER JOIN rrhh.estados_solicitudes es
+        ON es.idestadosolicitud = pp.idestadosolicitud
+      WHERE LOWER(TRIM(pp.emailinstitucional)) =
+      LOWER(TRIM($1))
+  AND pp.fecsolicitud = $2::date
+  AND COALESCE(pp.catemergencia, FALSE) = FALSE
+    )
+
+    SELECT
+      hd.hordisponibles::text AS hordisponibles,
+      COALESCE(cd.minutos_consumidos, 0) AS consumidodia
+    FROM consumo_dia cd
+    LEFT JOIN rrhh.horas_disponibles hd
+      ON LOWER(TRIM(hd.emailinstitucional)) =
+         LOWER(TRIM($1))
+     AND hd.periodo_saldo =
+         DATE_TRUNC('month', $2::date)::date
+    `,
       [email, fecha],
     )) as DisponibilidadRow[];
 
-    const consumidoDia = Math.round(Number(rows[0]?.consumidodia ?? 0));
-    const consumidoMes = Math.round(Number(rows[0]?.consumidomes ?? 0));
+    const fila = rows[0];
+
+    if (!fila?.hordisponibles) {
+      throw new BadRequestException(
+        'El saldo mensual del empleado no está inicializado para el período consultado',
+      );
+    }
+
+    // 1. Consumo diario: únicamente permisos personales.
+    const consumidoDia = Math.round(Number(fila.consumidodia ?? 0));
+
     const disponibleDia = Math.max(0, 180 - consumidoDia);
-    const disponibleMes = Math.max(0, 540 - consumidoMes);
+
+    // 2. Saldo compartido: permisos personales y llegadas tardías.
+    const partesHora = String(fila.hordisponibles).split(':').map(Number);
+
+    const horas = partesHora[0] ?? 0;
+    const minutos = partesHora[1] ?? 0;
+    const segundos = partesHora[2] ?? 0;
+
+    const saldoMinutos = Math.max(0, Math.floor(horas * 60 + minutos + segundos / 60));
+
+    // 3. El consumo mensual se obtiene del saldo real.
+    const consumidoMes = Math.max(0, 540 - saldoMinutos);
+
+    const disponibleMes = Math.min(540, saldoMinutos);
 
     return {
       fecha,
@@ -473,7 +522,7 @@ export class PermisosPersonalesService {
       limiteMensualMinutos: 540,
       consumidoMesMinutos: consumidoMes,
       disponibleMesMinutos: disponibleMes,
-      horasDisponibles: rows[0]?.hordisponibles ?? '00:00:00',
+      horasDisponibles: fila.hordisponibles,
     };
   }
 
@@ -482,6 +531,7 @@ export class PermisosPersonalesService {
    * Valida que el correo corresponda a un empleado activo y calcula
    * el máximo que puede solicitar considerando saldo, límite diario y mensual.
    */
+
   async consultarDisponibilidadManual(email: string, fecha: string) {
     const emailEmpleado = email?.trim().toLowerCase();
 
@@ -489,14 +539,26 @@ export class PermisosPersonalesService {
       throw new BadRequestException('Debe seleccionar un empleado');
     }
 
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(fecha)) {
+      throw new BadRequestException('La fecha debe tener el formato YYYY-MM-DD');
+    }
+
+    const fechaValida = await this.dataSource.query(`SELECT $1::date = $1::text::date AS valida`, [
+      fecha,
+    ]);
+
+    if (!fechaValida[0]?.valida) {
+      throw new BadRequestException('La fecha indicada no es válida');
+    }
+
     const empleados = await this.dataSource.query(
       `
-      SELECT emailinstitucional
-      FROM rrhh.empleados
-      WHERE LOWER(TRIM(emailinstitucional)) = LOWER(TRIM($1))
-        AND actlaboralmente = TRUE
-      LIMIT 1
-      `,
+    SELECT emailinstitucional
+    FROM rrhh.empleados
+    WHERE LOWER(TRIM(emailinstitucional)) = LOWER(TRIM($1))
+      AND actlaboralmente = TRUE
+    LIMIT 1
+    `,
       [emailEmpleado],
     );
 
@@ -509,7 +571,12 @@ export class PermisosPersonalesService {
     const partesHora = String(disponibilidad.horasDisponibles ?? '00:00:00')
       .split(':')
       .map(Number);
-    const minutosSaldo = Math.max(0, (partesHora[0] ?? 0) * 60 + (partesHora[1] ?? 0));
+
+    const horas = partesHora[0] ?? 0;
+    const minutos = partesHora[1] ?? 0;
+    const segundos = partesHora[2] ?? 0;
+
+    const minutosSaldo = Math.max(0, Math.floor(horas * 60 + minutos + segundos / 60));
 
     const disponibleSolicitarMinutos = Math.max(
       0,
@@ -645,115 +712,157 @@ export class PermisosPersonalesService {
 
   async registrarHoraRetorno(idPermiso: string, horaRetorno: string, emailAgente: string) {
     return this.dataSource.transaction(async (manager) => {
+      // 1. Consultar y bloquear el permiso.
       const permisos = await manager.query(
         `
-          SELECT
-            idpermisopersonal,
-            emailinstitucional,
-            horsolicitadas,
-            horsalida,
-            horretorno
-          FROM rrhh.permisos_personales
-          WHERE idpermisopersonal =
-                $1::uuid
-
-          FOR UPDATE
-          `,
+      SELECT
+        idpermisopersonal,
+        emailinstitucional,
+        fecsolicitud,
+        horsolicitadas,
+        horsalida,
+        horretorno,
+        catemergencia
+      FROM rrhh.permisos_personales
+      WHERE idpermisopersonal = $1::uuid
+      FOR UPDATE
+      `,
         [idPermiso],
       );
+
       const permiso = permisos?.[0];
+
       if (!permiso) {
         throw new NotFoundException('Permiso personal no encontrado');
       }
+
       if (!permiso.horsalida) {
         throw new BadRequestException('Debe registrar primero la hora de salida');
       }
+
       if (permiso.horretorno) {
         throw new BadRequestException('La hora de retorno ya fue registrada');
       }
 
+      // 2. Calcular los minutos reales y solicitados.
       const calculo = await manager.query(
         `
-            SELECT
-
-              GREATEST(
-                EXTRACT(
-                  EPOCH FROM (
-                    $1::time -
-                    $2::time
-                  )
-                ) / 60,
-                0
-              )::integer AS
-                minutos_reales,
-
-              (
-                EXTRACT(
-                  EPOCH FROM $3::time
-                ) / 60
-              )::integer AS
-                minutos_solicitados
-            `,
+      SELECT
+        GREATEST(
+          EXTRACT(
+            EPOCH FROM (
+              $1::time - $2::time
+            )
+          ) / 60,
+          0
+        )::integer AS minutos_reales,
+        (
+          EXTRACT(
+            EPOCH FROM $3::time
+          ) / 60
+        )::integer AS minutos_solicitados
+      `,
         [horaRetorno, permiso.horsalida, permiso.horsolicitadas],
       );
+
       const minutosReales = Number(calculo[0]?.minutos_reales ?? 0);
+
       const minutosSolicitados = Number(calculo[0]?.minutos_solicitados ?? 0);
+
       if (minutosReales <= 0) {
         throw new BadRequestException('La hora de retorno debe ser posterior a la hora de salida');
       }
+
       const minutosADevolver = Math.max(0, minutosSolicitados - minutosReales);
+
+      // 3. Registrar la hora de retorno.
       await manager.query(
         `
-          UPDATE rrhh.permisos_personales
-
-          SET
-            horretorno = $2::time,
-            guardiaturno = $3,
-            actualizadoen = CURRENT_DATE,
-            actualizadopor = $3
-          WHERE idpermisopersonal =
-                $1::uuid
-          `,
+      UPDATE rrhh.permisos_personales
+      SET
+        horretorno = $2::time,
+        guardiaturno = $3,
+        actualizadoen = CURRENT_DATE,
+        actualizadopor = $3
+      WHERE idpermisopersonal = $1::uuid
+      `,
         [idPermiso, horaRetorno, emailAgente],
       );
 
-      if (minutosADevolver > 0) {
-        await manager.query(
+      let minutosDevueltos = 0;
+
+      // 4. Si hay minutos que devolver, verificar el período del saldo.
+      const esEmergencia =
+        permiso.catemergencia === true || String(permiso.catemergencia).toLowerCase() === 'true';
+
+      // Las emergencias no descuentan saldo, por lo tanto,
+      // tampoco deben recibir devoluciones.
+      if (minutosADevolver > 0 && !esEmergencia) {
+        const saldos = await manager.query(
           `
-            UPDATE rrhh.horas_disponibles
-
-            SET
-              hordisponibles =
-                hordisponibles +
-                ($2 || ' minutes')::interval,
-
-              actualizadoen =
-                CURRENT_DATE,
-
-              actualizadopor =
-                $3
-
-            WHERE LOWER(
-                    TRIM(
-                      emailinstitucional
-                    )
-                  ) =
-                  LOWER(TRIM($1))
-            `,
-          [permiso.emailinstitucional, minutosADevolver, emailAgente],
+        SELECT
+          idhorasdisponible,
+          periodo_saldo,
+          (
+            periodo_saldo =
+            DATE_TRUNC('month', $2::date)::date
+          ) AS mismo_periodo
+        FROM rrhh.horas_disponibles
+        WHERE LOWER(TRIM(emailinstitucional)) =
+              LOWER(TRIM($1))
+        LIMIT 1
+        FOR UPDATE
+        `,
+          [permiso.emailinstitucional, permiso.fecsolicitud],
         );
+
+        if (!saldos.length) {
+          throw new NotFoundException('No se encontró el saldo de horas del empleado');
+        }
+
+        const saldo = saldos[0];
+
+        // 5. Devolver únicamente si corresponde al mismo mes.
+        if (saldo.mismo_periodo === true) {
+          const actualizacion = await manager.query(
+            `
+          UPDATE rrhh.horas_disponibles
+          SET
+            hordisponibles =
+              hordisponibles +
+              ($1::text || ' minutes')::interval,
+            actualizadoen = CURRENT_DATE,
+            actualizadopor = $2
+          WHERE idhorasdisponible = $3
+            AND periodo_saldo =
+                DATE_TRUNC('month', $4::date)::date
+          RETURNING idhorasdisponible
+          `,
+            [String(minutosADevolver), emailAgente, saldo.idhorasdisponible, permiso.fecsolicitud],
+          );
+
+          if (!actualizacion.length) {
+            throw new BadRequestException(
+              'No se pudo devolver el saldo al período correspondiente',
+            );
+          }
+
+          minutosDevueltos = minutosADevolver;
+        }
       }
 
+      // 6. Respuesta.
       return {
         status: 'OK',
         mensaje: 'Hora de retorno registrada correctamente',
         idPermiso,
         minutosSolicitados,
         minutosReales,
-        minutosDevueltos: minutosADevolver,
+        minutosDevueltos,
       };
     });
   }
+
   private async obtenerIdUsuarioPorEmail(email: string): Promise<string> {
     const usuarios = await this.dataSource.query(
       `
@@ -780,20 +889,63 @@ export class PermisosPersonalesService {
     return this.dataSource.transaction(async (manager) => {
       const emailEmpleado = dto.emailEmpleado.trim().toLowerCase();
       const emailAuditoria = emailResponsable.trim().toLowerCase();
+
+      const esEmergencia = dto.emergencia ?? false;
+
       const horas = dto.horas.length === 5 ? `${dto.horas}:00` : dto.horas;
+
       const horaSalida = dto.horaSalida?.trim()
         ? dto.horaSalida.length === 5
           ? `${dto.horaSalida}:00`
           : dto.horaSalida
         : null;
+
       const horaRegreso = dto.horaRegreso?.trim()
         ? dto.horaRegreso.length === 5
           ? `${dto.horaRegreso}:00`
           : dto.horaRegreso
         : null;
+
       const observacion = dto.observacion?.trim() || null;
 
-      // 1. Validar las horas autorizadas.
+      // 1. Validar fecha.
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(dto.fecha)) {
+        throw new BadRequestException('La fecha debe tener el formato YYYY-MM-DD');
+      }
+
+      const periodoResultado = await manager.query(
+        `
+      SELECT
+        (CURRENT_TIMESTAMP AT TIME ZONE 'America/Tegucigalpa')::date AS hoy,
+        DATE_TRUNC(
+          'month',
+          CURRENT_TIMESTAMP AT TIME ZONE 'America/Tegucigalpa'
+        )::date AS periodo
+      `,
+      );
+
+      const periodoActual = String(periodoResultado[0].periodo).slice(0, 10);
+
+      const fechaResultado = await manager.query(`SELECT $1::date AS fecha`, [dto.fecha]);
+
+      const fechaPermiso = String(fechaResultado[0].fecha).slice(0, 10);
+
+      const siguientePeriodo = await manager.query(
+        `
+      SELECT (
+        DATE_TRUNC('month', $1::date) + INTERVAL '1 month'
+      )::date AS siguiente_periodo
+      `,
+        [periodoActual],
+      );
+
+      const limitePeriodo = String(siguientePeriodo[0].siguiente_periodo).slice(0, 10);
+
+      if (fechaPermiso < periodoActual || fechaPermiso >= limitePeriodo) {
+        throw new BadRequestException('El permiso debe pertenecer al mes vigente');
+      }
+
+      // 2. Validar horas.
       const resultadoMinutos = await manager.query(
         `
       SELECT EXTRACT(EPOCH FROM $1::time) / 60 AS minutos
@@ -811,7 +963,7 @@ export class PermisosPersonalesService {
         throw new BadRequestException('Las horas deben ser mayores que cero y no superar 3 horas');
       }
 
-      // 2. Evitar registros simultáneos del mismo empleado y mes.
+      // 3. Evitar registros simultáneos del mismo empleado y mes.
       await manager.query(
         `
       SELECT pg_advisory_xact_lock(
@@ -824,7 +976,7 @@ export class PermisosPersonalesService {
         [emailEmpleado, dto.fecha],
       );
 
-      // 3. Verificar que el empleado exista y esté activo.
+      // 4. Verificar empleado activo.
       const empleados = await manager.query(
         `
       SELECT emailinstitucional
@@ -842,7 +994,7 @@ export class PermisosPersonalesService {
         );
       }
 
-      // 4. Obtener el tipo de permiso personal.
+      // 5. Obtener tipo de permiso personal.
       const tipos = await manager.query(
         `
       SELECT idtiposolicitud
@@ -852,7 +1004,7 @@ export class PermisosPersonalesService {
       `,
       );
 
-      // 5. Obtener el estado APROBADO.
+      // 6. Obtener estado APROBADO.
       const estados = await manager.query(
         `
       SELECT idestadosolicitud
@@ -868,16 +1020,18 @@ export class PermisosPersonalesService {
         );
       }
 
-      // 6. Bloquear y obtener el saldo individual del empleado.
+      // 7. Bloquear y obtener saldo mensual.
       const saldos = await manager.query(
         `
       SELECT
         idhorasdisponible,
+        periodo_saldo,
         COALESCE(
           EXTRACT(EPOCH FROM hordisponibles) / 60,
           0
         )::integer AS minutos_saldo,
-        COALESCE(hordisponibles::text, '00:00:00') AS hordisponibles
+        COALESCE(hordisponibles::text, '00:00:00')
+          AS hordisponibles
       FROM rrhh.horas_disponibles
       WHERE LOWER(TRIM(emailinstitucional)) = LOWER(TRIM($1))
       LIMIT 1
@@ -890,91 +1044,83 @@ export class PermisosPersonalesService {
         throw new NotFoundException('El empleado no tiene registro de horas disponibles');
       }
 
-      const idHorasDisponibles = saldos[0].idhorasdisponible;
-      const minutosSaldo = Number(saldos[0].minutos_saldo ?? 0);
+      const saldo = saldos[0];
+      const idHorasDisponibles = saldo.idhorasdisponible;
+      const minutosSaldo = Number(saldo.minutos_saldo ?? 0);
 
-      if (minutosSaldo <= 0) {
+      if (
+        !esEmergencia &&
+        (!saldo.periodo_saldo || String(saldo.periodo_saldo).slice(0, 10) !== periodoActual)
+      ) {
         throw new BadRequestException(
-          'El empleado no tiene horas disponibles para solicitar un permiso personal',
+          'El saldo mensual del empleado no está inicializado para el período vigente',
         );
       }
 
-      if (minutosSolicitados > minutosSaldo) {
-        const horasDisponibles = saldos[0].hordisponibles ?? '00:00:00';
+      if (!esEmergencia && minutosSolicitados > minutosSaldo) {
         throw new BadRequestException(
-          `El empleado solo tiene ${horasDisponibles} disponibles. Reduzca las horas solicitadas.`,
+          `El empleado solo tiene ${saldo.hordisponibles} disponibles. Reduzca las horas solicitadas.`,
         );
       }
 
-      // 7. Calcular el consumo diario y mensual existente.
+      // 8. Calcular consumo diario, excluyendo emergencias.
       const consumos = await manager.query(
         `
       SELECT
         COALESCE(
           SUM(
             CASE
-              WHEN UPPER(TRIM(es.nomestado)) IN ('RECHAZADO', 'ANULADO')
+              WHEN UPPER(TRIM(es.nomestado))
+                   IN ('RECHAZADO', 'ANULADO')
                 THEN 0
-              WHEN pp.horsalida IS NOT NULL
-                   AND pp.horretorno IS NOT NULL
-                THEN GREATEST(
-                  EXTRACT(
-                    EPOCH FROM (pp.horretorno - pp.horsalida)
-                  ) / 60,
-                  0
-                )
-              ELSE EXTRACT(EPOCH FROM pp.horsolicitadas) / 60
-            END
-          ) FILTER (WHERE pp.fecsolicitud = $2::date),
-          0
-        )::integer AS consumido_dia,
 
-        COALESCE(
-          SUM(
-            CASE
-              WHEN UPPER(TRIM(es.nomestado)) IN ('RECHAZADO', 'ANULADO')
-                THEN 0
               WHEN pp.horsalida IS NOT NULL
                    AND pp.horretorno IS NOT NULL
                 THEN GREATEST(
                   EXTRACT(
-                    EPOCH FROM (pp.horretorno - pp.horsalida)
+                    EPOCH FROM (
+                      pp.horretorno - pp.horsalida
+                    )
                   ) / 60,
                   0
                 )
-              ELSE EXTRACT(EPOCH FROM pp.horsolicitadas) / 60
+
+              ELSE
+                EXTRACT(EPOCH FROM pp.horsolicitadas) / 60
             END
+          ) FILTER (
+            WHERE pp.fecsolicitud = $2::date
           ),
           0
-        )::integer AS consumido_mes
-
+        )::integer AS consumido_dia
       FROM rrhh.permisos_personales pp
       INNER JOIN rrhh.estados_solicitudes es
         ON es.idestadosolicitud = pp.idestadosolicitud
       WHERE LOWER(TRIM(pp.emailinstitucional)) = LOWER(TRIM($1))
-        AND EXTRACT(YEAR FROM pp.fecsolicitud) =
-            EXTRACT(YEAR FROM $2::date)
-        AND EXTRACT(MONTH FROM pp.fecsolicitud) =
-            EXTRACT(MONTH FROM $2::date)
-        AND UPPER(TRIM(es.nomestado)) IN (
-          'EN PROCESO',
-          'APROBADO',
-          'RECHAZADO',
-          'ANULADO'
-        )
+        AND DATE_TRUNC('month', pp.fecsolicitud) =
+            DATE_TRUNC('month', $2::date)
+        AND COALESCE(pp.catemergencia, FALSE) = FALSE
       `,
         [emailEmpleado, dto.fecha],
       );
+
       const consumidoDia = Number(consumos[0]?.consumido_dia ?? 0);
-      const consumidoMes = Number(consumos[0]?.consumido_mes ?? 0);
-      // 8. Aplicar los límites existentes.
-      if (consumidoDia + minutosSolicitados > 180) {
+
+      // 9. Consumo mensual según saldo compartido.
+      const consumidoMes = esEmergencia
+        ? Math.max(0, 540 - minutosSaldo)
+        : Math.max(0, 540 - minutosSaldo);
+
+      // 10. Aplicar límites solamente a permisos normales.
+      if (!esEmergencia && consumidoDia + minutosSolicitados > 180) {
         throw new BadRequestException('El permiso supera el límite diario de 3 horas');
       }
-      if (consumidoMes + minutosSolicitados > 540) {
+
+      if (!esEmergencia && consumidoMes + minutosSolicitados > 540) {
         throw new BadRequestException('El permiso supera el límite mensual de 9 horas');
       }
-      // 9. Registrar directamente como aprobado y manual.
+
+      // 11. Registrar permiso manual como aprobado.
       const permisosInsertados = await manager.query(
         `
       INSERT INTO rrhh.permisos_personales (
@@ -1031,7 +1177,7 @@ export class PermisosPersonalesService {
           idHorasDisponibles,
           estados[0].idestadosolicitud,
           dto.motivo.trim(),
-          dto.emergencia ?? false,
+          esEmergencia,
           emailAuditoria,
           dto.referenciaDocumento?.trim() || null,
           horaSalida,
@@ -1040,25 +1186,41 @@ export class PermisosPersonalesService {
         ],
       );
 
-      // 10. Descontar solo las horas solicitadas del saldo individual.
-      // La fila ya está bloqueada con FOR UPDATE dentro de esta transacción.
-      await manager.query(
-        `
-      UPDATE rrhh.horas_disponibles
-      SET
-        hordisponibles =
-          hordisponibles - ($1::text || ' minutes')::interval,
-        actualizadoen = CURRENT_DATE,
-        actualizadopor = $2
-      WHERE idhorasdisponible = $3
-      `,
-        [String(minutosSolicitados), emailAuditoria, idHorasDisponibles],
-      );
-      const saldoRestante = Math.max(0, minutosSaldo - minutosSolicitados);
-      const minutosRestantesMes = Math.max(0, 540 - consumidoMes - minutosSolicitados);
+      // 12. Descontar saldo únicamente si NO es emergencia.
+      let saldoRestante = minutosSaldo;
+
+      if (!esEmergencia) {
+        const actualizacion = await manager.query(
+          `
+        UPDATE rrhh.horas_disponibles
+        SET
+          hordisponibles =
+            hordisponibles - ($1::text || ' minutes')::interval,
+          actualizadoen = CURRENT_DATE,
+          actualizadopor = $2
+        WHERE idhorasdisponible = $3
+          AND periodo_saldo = $4::date
+        RETURNING
+          EXTRACT(EPOCH FROM hordisponibles) / 60
+            AS minutos_restantes
+        `,
+          [String(minutosSolicitados), emailAuditoria, idHorasDisponibles, periodoActual],
+        );
+
+        if (!actualizacion.length) {
+          throw new BadRequestException('No se pudo actualizar el saldo mensual del empleado');
+        }
+
+        saldoRestante = Number(actualizacion[0].minutos_restantes);
+      }
+
+      const minutosRestantesMes = Math.max(0, saldoRestante);
+
       return {
         status: 'OK',
-        message: 'Permiso personal manual registrado como aprobado',
+        message: esEmergencia
+          ? 'Permiso personal manual de emergencia registrado como aprobado sin descontar saldo'
+          : 'Permiso personal manual registrado como aprobado',
         idPermiso: permisosInsertados[0].idpermisopersonal,
         emailEmpleado,
         fecha: dto.fecha,
@@ -1069,12 +1231,15 @@ export class PermisosPersonalesService {
         horaRegreso,
         observacion,
         minutosSolicitados,
-        disponibleDiaMinutos: 180 - consumidoDia - minutosSolicitados,
+        disponibleDiaMinutos: esEmergencia
+          ? Math.max(0, 180 - consumidoDia)
+          : Math.max(0, 180 - consumidoDia - minutosSolicitados),
         disponibleMesMinutos: minutosRestantesMes,
         horasDisponiblesMinutos: saldoRestante,
       };
     });
   }
+
   async consultarReporteManual(fechaInicio: string, fechaFinal: string) {
     this.validarRangoReporte(fechaInicio, fechaFinal);
     const rows = await this.dataSource.query(
@@ -1182,20 +1347,25 @@ export class PermisosPersonalesService {
       const emailEmpleado = dto.emailEmpleado.trim().toLowerCase();
       const emailAuditoria = emailResponsable.trim().toLowerCase();
       const fecha = dto.fechaLlegada;
+
       const horaLlegada =
         dto.horaLlegadaReal.length === 5 ? `${dto.horaLlegadaReal}:00` : dto.horaLlegadaReal;
+
       const horaSalida = dto.horaSalida?.trim()
         ? dto.horaSalida.length === 5
           ? `${dto.horaSalida}:00`
           : dto.horaSalida
         : null;
+
       const horaRegreso = dto.horaRegreso?.trim()
         ? dto.horaRegreso.length === 5
           ? `${dto.horaRegreso}:00`
           : dto.horaRegreso
         : null;
+
       const observacion = dto.observacion?.trim() || null;
 
+      // 1. Validar formato de fecha.
       if (!/^\d{4}-\d{2}-\d{2}$/.test(fecha)) {
         throw new BadRequestException('La fecha debe tener el formato YYYY-MM-DD');
       }
@@ -1204,18 +1374,44 @@ export class PermisosPersonalesService {
         throw new BadRequestException('Debe indicar el motivo de la llegada tardía');
       }
 
-      // La hora de retraso se calcula en el backend.
+      // 2. Obtener fecha y período actual de Honduras.
+      const periodoResultado = await manager.query(`
+      SELECT
+        (CURRENT_TIMESTAMP AT TIME ZONE 'America/Tegucigalpa')::date AS hoy,
+        DATE_TRUNC(
+          'month',
+          CURRENT_TIMESTAMP AT TIME ZONE 'America/Tegucigalpa'
+        )::date AS periodo
+    `);
+
+      const hoy = periodoResultado[0].hoy;
+      const periodoActual = periodoResultado[0].periodo;
+
+      // 3. Validar que la fecha exista y pertenezca al mes vigente.
+      const fechaResultado = await manager.query(`SELECT $1::date AS fecha`, [fecha]);
+
+      if (
+        !fechaResultado[0]?.fecha ||
+        String(fechaResultado[0].fecha).slice(0, 10) < String(periodoActual).slice(0, 10) ||
+        String(fechaResultado[0].fecha).slice(0, 10) > String(hoy).slice(0, 10)
+      ) {
+        throw new BadRequestException(
+          'La llegada tardía debe corresponder a una fecha del mes vigente que ya haya ocurrido',
+        );
+      }
+
+      // 4. Calcular los minutos de retraso desde las 8:00 a. m.
       const calculo = await manager.query(
         `
-        SELECT
-          CASE
-            WHEN $1::time > TIME '08:00:00'
-            THEN EXTRACT(
-              EPOCH FROM ($1::time - TIME '08:00:00')
-            ) / 60
-            ELSE 0
-          END::integer AS minutos_retraso
-        `,
+      SELECT
+        CASE
+          WHEN $1::time > TIME '08:00:00'
+          THEN EXTRACT(
+            EPOCH FROM ($1::time - TIME '08:00:00')
+          ) / 60
+          ELSE 0
+        END::integer AS minutos_retraso
+      `,
         [horaLlegada],
       );
 
@@ -1227,28 +1423,28 @@ export class PermisosPersonalesService {
         );
       }
 
-      // Evitar registros simultáneos para el mismo empleado y fecha.
+      // 5. Evitar registros simultáneos para el mismo empleado y fecha.
       await manager.query(
         `
-        SELECT pg_advisory_xact_lock(
-          hashtext(
-            LOWER(TRIM($1)) || '-' ||
-            TO_CHAR($2::date, 'YYYY-MM-DD')
-          )
+      SELECT pg_advisory_xact_lock(
+        hashtext(
+          LOWER(TRIM($1)) || '-' ||
+          TO_CHAR($2::date, 'YYYY-MM-DD')
         )
-        `,
+      )
+      `,
         [emailEmpleado, fecha],
       );
 
-      // Verificar que el empleado exista y esté activo.
+      // 6. Verificar que el empleado exista y esté activo.
       const empleados = await manager.query(
         `
-        SELECT emailinstitucional
-        FROM rrhh.empleados
-        WHERE LOWER(TRIM(emailinstitucional)) = $1
-          AND actlaboralmente = TRUE
-        LIMIT 1
-        `,
+      SELECT emailinstitucional
+      FROM rrhh.empleados
+      WHERE LOWER(TRIM(emailinstitucional)) = $1
+        AND actlaboralmente = TRUE
+      LIMIT 1
+      `,
         [emailEmpleado],
       );
 
@@ -1258,16 +1454,16 @@ export class PermisosPersonalesService {
         );
       }
 
-      // Impedir dos justificaciones aprobadas para la misma fecha.
+      // 7. Impedir dos justificaciones aprobadas para la misma fecha.
       const existentes = await manager.query(
         `
-        SELECT idjustificacion
-        FROM rrhh.justificaciones_llegadas_tardias
-        WHERE LOWER(TRIM(emailinstitucional)) = $1
-          AND fecha_llegada = $2::date
-          AND estado = 'APROBADO'
-        LIMIT 1
-        `,
+      SELECT idjustificacion
+      FROM rrhh.justificaciones_llegadas_tardias
+      WHERE LOWER(TRIM(emailinstitucional)) = $1
+        AND fecha_llegada = $2::date
+        AND estado = 'APROBADO'
+      LIMIT 1
+      `,
         [emailEmpleado, fecha],
       );
 
@@ -1277,22 +1473,23 @@ export class PermisosPersonalesService {
         );
       }
 
-      // Bloquear el saldo para evitar descuentos simultáneos.
+      // 8. Bloquear y consultar el saldo mensual del empleado.
       const saldos = await manager.query(
         `
-        SELECT
-          idhorasdisponible,
-          COALESCE(
-            EXTRACT(EPOCH FROM hordisponibles) / 60,
-            0
-          )::integer AS minutos_saldo,
-          COALESCE(hordisponibles::text, '00:00:00')
-            AS hordisponibles
-        FROM rrhh.horas_disponibles
-        WHERE LOWER(TRIM(emailinstitucional)) = $1
-        LIMIT 1
-        FOR UPDATE
-        `,
+      SELECT
+        idhorasdisponible,
+        periodo_saldo,
+        COALESCE(
+          EXTRACT(EPOCH FROM hordisponibles) / 60,
+          0
+        )::integer AS minutos_saldo,
+        COALESCE(hordisponibles::text, '00:00:00')
+          AS hordisponibles
+      FROM rrhh.horas_disponibles
+      WHERE LOWER(TRIM(emailinstitucional)) = $1
+      LIMIT 1
+      FOR UPDATE
+      `,
         [emailEmpleado],
       );
 
@@ -1304,64 +1501,75 @@ export class PermisosPersonalesService {
       const idHorasDisponibles = saldo.idhorasdisponible;
       const minutosSaldo = Number(saldo.minutos_saldo ?? 0);
 
+      // 9. Verificar que el saldo pertenezca al período actual.
+      if (
+        !saldo.periodo_saldo ||
+        String(saldo.periodo_saldo).slice(0, 10) !== String(periodoActual).slice(0, 10)
+      ) {
+        throw new BadRequestException(
+          'El saldo mensual del empleado no está inicializado para el período vigente',
+        );
+      }
+
+      // 10. Verificar que tenga minutos suficientes.
       if (minutosRetraso > minutosSaldo) {
         throw new BadRequestException(
           `El retraso es de ${minutosRetraso} minutos, pero el empleado solo tiene ${minutosSaldo} minutos disponibles`,
         );
       }
 
-      // Guardar la justificación en su tabla independiente.
+      // 11. Guardar la justificación en su tabla independiente.
       const insertados = await manager.query(
         `
-        INSERT INTO rrhh.justificaciones_llegadas_tardias (
-          idhorasdisponible,
-          emailinstitucional,
-          fecha_llegada,
-          hora_entrada_establecida,
-          hora_llegada_real,
-          minutos_retraso,
-          motivo,
-          referenciadocumento,
-          estado,
-          minutos_descontados,
-          creadoen,
-          creadopor,
-          hora_salida,
-          hora_regreso,
-          observacion
-        )
-        VALUES (
-          $1,
-          $2,
-          $3::date,
-          TIME '08:00:00',
-          $4::time,
-          $5,
-          $6,
-          $7,
-          'APROBADO',
-          $5,
-          CURRENT_DATE,
-          $8,
-          $9::time,
-          $10::time,
-          $11
-        )
-        RETURNING
-          idjustificacion AS "idJustificacion",
-          emailinstitucional AS "emailInstitucional",
-          fecha_llegada AS "fechaLlegada",
-          hora_entrada_establecida::text AS "horaEntradaEstablecida",
-          hora_llegada_real::text AS "horaLlegadaReal",
-          minutos_retraso AS "minutosRetraso",
-          motivo,
-          referenciadocumento AS "referenciaDocumento",
-          hora_salida::text AS "horaSalida",
-          hora_regreso::text AS "horaRegreso",
-          observacion,
-          estado,
-          minutos_descontados AS "minutosDescontados"
-        `,
+      INSERT INTO rrhh.justificaciones_llegadas_tardias (
+        idhorasdisponible,
+        emailinstitucional,
+        fecha_llegada,
+        hora_entrada_establecida,
+        hora_llegada_real,
+        minutos_retraso,
+        motivo,
+        referenciadocumento,
+        estado,
+        minutos_descontados,
+        creadoen,
+        creadopor,
+        hora_salida,
+        hora_regreso,
+        observacion
+      )
+      VALUES (
+        $1,
+        $2,
+        $3::date,
+        TIME '08:00:00',
+        $4::time,
+        $5,
+        $6,
+        $7,
+        'APROBADO',
+        $5,
+        CURRENT_DATE,
+        $8,
+        $9::time,
+        $10::time,
+        $11
+      )
+      RETURNING
+        idjustificacion AS "idJustificacion",
+        emailinstitucional AS "emailInstitucional",
+        fecha_llegada AS "fechaLlegada",
+        hora_entrada_establecida::text AS "horaEntradaEstablecida",
+        hora_llegada_real::text AS "horaLlegadaReal",
+        minutos_retraso AS "minutosRetraso",
+        motivo,
+        referenciadocumento AS "referenciaDocumento",
+        hora_salida::text AS "horaSalida",
+        hora_regreso::text AS "horaRegreso",
+        observacion,
+        estado,
+        minutos_descontados AS "minutosDescontados"
+      `,
         [
           idHorasDisponibles,
           emailEmpleado,
@@ -1377,26 +1585,33 @@ export class PermisosPersonalesService {
         ],
       );
 
-      // Descontar exactamente los minutos calculados.
-      await manager.query(
+      // 12. Descontar los minutos del saldo del período vigente.
+      const actualizacion = await manager.query(
         `
-        UPDATE rrhh.horas_disponibles
-        SET
-          hordisponibles =
-            hordisponibles - ($1::text || ' minutes')::interval,
-          actualizadoen = CURRENT_DATE,
-          actualizadopor = $2
-        WHERE idhorasdisponible = $3
-        `,
-        [String(minutosRetraso), emailAuditoria, idHorasDisponibles],
+      UPDATE rrhh.horas_disponibles
+      SET
+        hordisponibles =
+          hordisponibles - ($1::text || ' minutes')::interval,
+        actualizadoen = CURRENT_DATE,
+        actualizadopor = $2
+      WHERE idhorasdisponible = $3
+        AND periodo_saldo = $4::date
+      RETURNING
+        EXTRACT(EPOCH FROM hordisponibles) / 60 AS minutos_restantes
+      `,
+        [String(minutosRetraso), emailAuditoria, idHorasDisponibles, periodoActual],
       );
+
+      if (!actualizacion.length) {
+        throw new BadRequestException('No se pudo actualizar el saldo mensual del empleado');
+      }
 
       return {
         status: 'OK',
         message: 'Llegada tardía registrada y aprobada correctamente',
         data: insertados[0],
         minutosDescontados: minutosRetraso,
-        saldoRestanteMinutos: minutosSaldo - minutosRetraso,
+        saldoRestanteMinutos: Number(actualizacion[0].minutos_restantes),
       };
     });
   }
@@ -1462,18 +1677,20 @@ export class PermisosPersonalesService {
     return this.dataSource.transaction(async (manager) => {
       const emailAuditoria = emailResponsable.trim().toLowerCase();
 
+      // 1. Bloquear el registro para impedir anulaciones simultáneas.
       const registros = await manager.query(
         `
-        SELECT
-          idjustificacion,
-          idhorasdisponible,
-          emailinstitucional,
-          minutos_descontados,
-          estado
-        FROM rrhh.justificaciones_llegadas_tardias
-        WHERE idjustificacion = $1::uuid
-        FOR UPDATE
-        `,
+      SELECT
+        idjustificacion,
+        idhorasdisponible,
+        emailinstitucional,
+        fecha_llegada,
+        minutos_descontados,
+        estado
+      FROM rrhh.justificaciones_llegadas_tardias
+      WHERE idjustificacion = $1::uuid
+      FOR UPDATE
+      `,
         [idJustificacion],
       );
 
@@ -1489,14 +1706,29 @@ export class PermisosPersonalesService {
 
       const minutosDevolver = Number(registro.minutos_descontados ?? 0);
 
-      // Bloquear el saldo antes de restaurarlo.
+      // 2. Obtener el período al que pertenece la justificación.
+      const periodoResultado = await manager.query(
+        `
+      SELECT DATE_TRUNC(
+        'month',
+        $1::date
+      )::date AS periodo
+      `,
+        [registro.fecha_llegada],
+      );
+
+      const periodoJustificacion = periodoResultado[0].periodo;
+
+      // 3. Bloquear y consultar el saldo del empleado.
       const saldos = await manager.query(
         `
-        SELECT idhorasdisponible
-        FROM rrhh.horas_disponibles
-        WHERE idhorasdisponible = $1
-        FOR UPDATE
-        `,
+      SELECT
+        idhorasdisponible,
+        periodo_saldo
+      FROM rrhh.horas_disponibles
+      WHERE idhorasdisponible = $1
+      FOR UPDATE
+      `,
         [registro.idhorasdisponible],
       );
 
@@ -1506,40 +1738,68 @@ export class PermisosPersonalesService {
         );
       }
 
-      if (minutosDevolver > 0) {
-        await manager.query(
-          `
-          UPDATE rrhh.horas_disponibles
-          SET
-            hordisponibles =
-              hordisponibles + ($1::text || ' minutes')::interval,
-            actualizadoen = CURRENT_DATE,
-            actualizadopor = $2
-          WHERE idhorasdisponible = $3
-          `,
-          [String(minutosDevolver), emailAuditoria, registro.idhorasdisponible],
-        );
-      }
+      const saldo = saldos[0];
 
-      // Se cambia el estado dentro de la misma transacción.
-      // Una segunda anulación no podrá devolver el saldo otra vez.
-      await manager.query(
-        `
-        UPDATE rrhh.justificaciones_llegadas_tardias
+      // 4. Devolver los minutos únicamente al mismo período.
+      const mismoPeriodo =
+        saldo.periodo_saldo &&
+        String(saldo.periodo_saldo).slice(0, 10) === String(periodoJustificacion).slice(0, 10);
+
+      let minutosDevueltos = 0;
+
+      if (minutosDevolver > 0 && mismoPeriodo) {
+        const actualizacion = await manager.query(
+          `
+        UPDATE rrhh.horas_disponibles
         SET
-          estado = 'ANULADO',
+          hordisponibles =
+            hordisponibles + ($1::text || ' minutes')::interval,
           actualizadoen = CURRENT_DATE,
           actualizadopor = $2
-        WHERE idjustificacion = $1::uuid
+        WHERE idhorasdisponible = $3
+          AND periodo_saldo = $4::date
+        RETURNING idhorasdisponible
         `,
+          [
+            String(minutosDevolver),
+            emailAuditoria,
+            registro.idhorasdisponible,
+            periodoJustificacion,
+          ],
+        );
+
+        if (!actualizacion.length) {
+          throw new BadRequestException('No se pudo devolver el saldo al período correspondiente');
+        }
+
+        minutosDevueltos = minutosDevolver;
+      }
+
+      // 5. Anular la justificación dentro de la misma transacción.
+      await manager.query(
+        `
+      UPDATE rrhh.justificaciones_llegadas_tardias
+      SET
+        estado = 'ANULADO',
+        actualizadoen = CURRENT_DATE,
+        actualizadopor = $2
+      WHERE idjustificacion = $1::uuid
+      `,
         [idJustificacion, emailAuditoria],
       );
 
       return {
         status: 'OK',
-        message: 'Justificación anulada correctamente',
-        idJustificacion,
-        minutosDevueltos: minutosDevolver,
+        message: mismoPeriodo
+          ? 'Justificación anulada correctamente y saldo devuelto'
+          : 'Justificación anulada correctamente. No se devolvió saldo porque corresponde a un período mensual anterior',
+        data: {
+          idJustificacion,
+          estado: 'ANULADO',
+          minutosDescontados: minutosDevolver,
+          minutosDevueltos,
+          saldoRestaurado: minutosDevueltos > 0,
+        },
       };
     });
   }

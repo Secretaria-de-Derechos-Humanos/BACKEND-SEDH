@@ -16,7 +16,6 @@ import { EmpleadosService } from './empleados.service';
 import { BuscarEmpleadoAdminDto } from './dto/buscar-empleado-admin.dto';
 import { ActualizarEmpleadoAdminDto } from './dto/actualizar-empleado-admin.dto';
 import { CrearEmpleadoAdminDto } from './dto/crear-empleado-admin.dto';
-import { ActualizarHorasDisponiblesDto } from './dto/actualizar-horas-disponibles.dto';
 import { VincularUsuarioEmpleadoDto } from './dto/vincular-usuario-empleado.dto';
 
 interface UsuarioJwt {
@@ -128,23 +127,6 @@ export class EmpleadosController {
       accesosSistema: dto.accesosSistema,
     });
   }
-
-  @Post('actualizar-horas-disponibles')
-  @ApiOperation({
-    summary: 'Actualizar horas disponibles de un empleado (administrador RRHH)',
-  })
-  @ApiBody({ type: ActualizarHorasDisponiblesDto })
-  @RequiereModulo(1)
-  actualizarHorasDisponibles(@Body() dto: ActualizarHorasDisponiblesDto) {
-    return this.empleadosService.actualizarHorasDisponibles(
-      dto.emailEmpleado,
-      dto.horasDisponibles,
-      dto.email,
-      dto.rol,
-      dto.idmodulo,
-    );
-  }
-
   @Post('vincular-usuario')
   @ApiOperation({
     summary: 'Vincular un usuario existente con un empleado',

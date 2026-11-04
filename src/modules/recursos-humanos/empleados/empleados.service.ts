@@ -673,31 +673,6 @@ export class EmpleadosService {
     }
   }
   // =========================================================
-  // ACTUALIZAR HORAS DISPONIBLES
-  // =========================================================
-
-  async actualizarHorasDisponibles(
-    emailEmpleado: string,
-    horasDisponibles: string,
-    emailAdmin: string,
-    rol: number,
-    idmodulo: number,
-  ) {
-    try {
-      const rows = await this.dataSource.query(
-        'SELECT rrhh.actualizar_horas_disponibles_empleado($1, $2, $3, $4, $5)',
-        [emailEmpleado, horasDisponibles, emailAdmin, String(rol), String(idmodulo)],
-      );
-
-      return rows[0]?.actualizar_horas_disponibles_empleado ?? null;
-    } catch (error) {
-      this.logger.error(`Error en actualizarHorasDisponibles: ${error}`);
-
-      throw new InternalServerErrorException(`DB Error: ${(error as Error).message}`);
-    }
-  }
-
-  // =========================================================
   // LISTAR EMPLEADOS
   // =========================================================
 
@@ -917,26 +892,30 @@ export class EmpleadosService {
         // HORAS DISPONIBLES
         // -------------------------------------------------
 
-        // HORAS DISPONIBLES
         await manager.query(
           `
-    INSERT INTO rrhh.horas_disponibles (
-      emailinstitucional,
-      hordisponibles,
-      creadoen,
-      creadopor,
-      actualizadoen,
-      actualizadopor
-    )
-    VALUES (
-      $1::varchar,
-      '09:00:00'::time,
-      CURRENT_DATE,
-      $2::varchar,
-      CURRENT_DATE,
-      $2::varchar
-    )
-    ON CONFLICT DO NOTHING
+  INSERT INTO rrhh.horas_disponibles (
+    emailinstitucional,
+    hordisponibles,
+    creadoen,
+    creadopor,
+    actualizadoen,
+    actualizadopor,
+    periodo_saldo
+  )
+  VALUES (
+    $1::varchar,
+    '09:00:00'::time,
+    CURRENT_DATE,
+    $2::varchar,
+    CURRENT_DATE,
+    $2::varchar,
+    DATE_TRUNC(
+      'month',
+      CURRENT_TIMESTAMP AT TIME ZONE 'America/Tegucigalpa'
+    )::date
+  )
+  ON CONFLICT DO NOTHING
   `,
           [usuario.emailinstitucional, emailAdmin],
         );

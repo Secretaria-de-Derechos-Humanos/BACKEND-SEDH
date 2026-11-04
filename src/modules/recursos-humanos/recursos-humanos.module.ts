@@ -12,6 +12,7 @@ import { ReportesPermisosModule } from './reportes-permisos/reportes-permisos.mo
 import { AprobacionesModule } from './aprobaciones/aprobaciones.module';
 import { NotificacionesModule } from './notificaciones/notificaciones.module';
 import { ConstanciasModule } from './constancias/constancias.module';
+import { SaldoMensualModule } from './solicitudes/saldo-mensual/saldo-mensual.module';
 
 @Module({
   imports: [
@@ -28,6 +29,7 @@ import { ConstanciasModule } from './constancias/constancias.module';
     ReportesPermisosModule,
     AprobacionesModule,
     NotificacionesModule,
+    SaldoMensualModule,
   ],
 })
 export class RecursosHumanosModule {}

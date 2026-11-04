@@ -10,6 +10,7 @@ import { jwtConfig } from './config/jwt.config';
 import { validationSchema } from './config/validation.schema';
 import { DatabaseModule } from './shared/database/database.module';
 import { CoreModule } from './core/core.module';
+import { ScheduleModule } from '@nestjs/schedule';
 
 // === MÓDULOS DE NEGOCIO ===
 import { RecursosHumanosModule } from './modules/recursos-humanos/recursos-humanos.module';
@@ -23,7 +24,7 @@ import { RecursosHumanosModule } from './modules/recursos-humanos/recursos-human
       validationSchema,
       validationOptions: { abortEarly: false },
     }),
-
+    ScheduleModule.forRoot(),
     // ── Rate Limiting global ─────────────────────────────────────────────
     ThrottlerModule.forRootAsync({
       useFactory: () => ({
