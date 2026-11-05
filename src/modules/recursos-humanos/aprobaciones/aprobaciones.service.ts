@@ -40,27 +40,34 @@ export class AprobacionesService {
   }
 
   /**
-   * Lista todas las solicitudes que están EN PROCESO.
+   * Lista solicitudes pendientes de aprobación.
+   *
+   * Permisos personales:
+   * Solamente muestra los que ya fueron aprobados
+   * por el Jefe Inmediato y están pendientes de RR. HH.
+   *
+   * Permisos oficiales y vacaciones:
+   * Conservan su consulta actual.
    */
   async listarPendientes() {
     const estadoEnProceso = await this.obtenerEstadoPorNombre('EN PROCESO');
 
     const [permisosPersonales, permisosOficiales, solicitudesVacaciones] = await Promise.all([
-      // Permisos personales
-      this.permisoPersonalRepo.find({
-        where: {
-          idEstadoSolicitud: estadoEnProceso.idEstadoSolicitud,
-        },
-        relations: {
-          tipoSolicitud: true,
-          estadoSolicitud: true,
-        },
-        order: {
-          fecSolicitud: 'DESC',
-        },
-      }),
+      // PERMISOS PERSONALES:
+      // Primera aprobación realizada y segunda pendiente.
+      this.permisoPersonalRepo
+        .createQueryBuilder('permiso')
+        .leftJoinAndSelect('permiso.tipoSolicitud', 'tipoSolicitud')
+        .leftJoinAndSelect('permiso.estadoSolicitud', 'estadoSolicitud')
+        .where('permiso.idEstadoSolicitud = :estado', {
+          estado: estadoEnProceso.idEstadoSolicitud,
+        })
+        .andWhere("NULLIF(TRIM(permiso.priAprobacion), '') IS NOT NULL")
+        .andWhere("NULLIF(TRIM(permiso.segAprobacion), '') IS NULL")
+        .orderBy('permiso.fecSolicitud', 'DESC')
+        .getMany(),
 
-      // Permisos oficiales
+      // PERMISOS OFICIALES: SIN CAMBIOS.
       this.permisosOficialesRepo.find({
         where: {
           idEstadoSolicitud: estadoEnProceso.idEstadoSolicitud,
@@ -74,7 +81,7 @@ export class AprobacionesService {
         },
       }),
 
-      // Solicitudes de vacaciones
+      // VACACIONES: SIN CAMBIOS.
       this.vacacionesRepo.find({
         where: {
           idEstadoSolicitud: estadoEnProceso.idEstadoSolicitud,
@@ -123,9 +130,6 @@ export class AprobacionesService {
 
     const oficiales = permisosOficiales.map((permiso) => ({
       id: permiso.idPermisoOficial,
-
-      // Se conserva para que la tabla
-      // actual pueda usar un identificador común.
       idPermisoPersonal: permiso.idPermisoOficial,
       idPermisoOficial: permiso.idPermisoOficial,
       idPermisoVaca: null,
@@ -157,8 +161,6 @@ export class AprobacionesService {
 
     const vacaciones = solicitudesVacaciones.map((vacacion) => ({
       id: vacacion.idPermisoVaca,
-
-      // Identificador común para la tabla actual.
       idPermisoPersonal: vacacion.idPermisoVaca,
       idPermisoOficial: null,
       idPermisoVaca: vacacion.idPermisoVaca,
@@ -172,13 +174,8 @@ export class AprobacionesService {
       },
 
       fecSolicitud: vacacion.fecSolicitud,
-
-      // Las vacaciones no manejan horas.
       horSalida: null,
       horRetorno: null,
-
-      // Se utiliza esta propiedad común
-      // para mostrar la cantidad de días.
       horSolicitadas: vacacion.cantVacaciones,
       idHorasDisponibles: vacacion.totDiasRestantes,
       motivo: vacacion.observaciones,
@@ -255,13 +252,12 @@ export class AprobacionesService {
   }
 
   /**
-   * Aprobar permiso personal.
+   * Segunda aprobación de permiso personal: Recursos Humanos.
+   * Requiere que el Jefe Inmediato haya aprobado previamente.
    */
   async aprobarPermisoPersonal(idPermisoPersonal: string, emailAprobador: string) {
     const permiso = await this.permisoPersonalRepo.findOne({
-      where: {
-        idPermisoPersonal,
-      },
+      where: { idPermisoPersonal },
     });
 
     if (!permiso) {
@@ -269,50 +265,62 @@ export class AprobacionesService {
     }
 
     const estadoEnProceso = await this.obtenerEstadoPorNombre('EN PROCESO');
+    const estadoAprobado = await this.obtenerEstadoPorNombre('APROBADO');
 
     if (permiso.idEstadoSolicitud !== estadoEnProceso.idEstadoSolicitud) {
-      throw new BadRequestException('La solicitud ya fue aprobada o rechazada');
+      throw new BadRequestException('El permiso no se encuentra en estado EN PROCESO');
     }
 
-    const estadoAprobado = await this.obtenerEstadoPorNombre('APROBADO');
+    if (!permiso.priAprobacion?.trim()) {
+      throw new BadRequestException('El permiso todavía no ha sido aprobado por el Jefe Inmediato');
+    }
+
+    if (permiso.segAprobacion?.trim()) {
+      throw new BadRequestException('El permiso ya cuenta con la segunda aprobación');
+    }
+
+    if (permiso.priAprobacion.trim().toLowerCase() === emailAprobador.trim().toLowerCase()) {
+      throw new BadRequestException(
+        'El Jefe Inmediato no puede realizar también la aprobación de Recursos Humanos',
+      );
+    }
 
     const resultado = await this.dataSource.query(
       `
       UPDATE rrhh.permisos_personales
       SET
-        idestadosolicitud = $2::uuid,
-        priaprobacion = $3,
+        segaprobacion = $2,
+        idestadosolicitud = $3::uuid,
         motrechazo = NULL,
         actualizadoen = CURRENT_DATE,
-        actualizadopor = $3
+        actualizadopor = $2
       WHERE idpermisopersonal = $1::uuid
         AND idestadosolicitud = $4::uuid
+        AND priaprobacion IS NOT NULL
+        AND TRIM(priaprobacion) <> ''
+        AND segaprobacion IS NULL
       RETURNING idpermisopersonal
     `,
       [
         idPermisoPersonal,
+        emailAprobador.trim(),
         estadoAprobado.idEstadoSolicitud,
-        emailAprobador,
         estadoEnProceso.idEstadoSolicitud,
       ],
     );
 
     if (!resultado || resultado.length === 0) {
       throw new BadRequestException(
-        'No se pudo aprobar el permiso personal. Verifique su estado actual.',
+        'No se pudo completar la aprobación de Recursos Humanos. Verifique el estado y las aprobaciones del permiso.',
       );
     }
 
-    const actualizado = await this.permisoPersonalRepo.findOne({
-      where: {
-        idPermisoPersonal,
-      },
+    return this.permisoPersonalRepo.findOne({
+      where: { idPermisoPersonal },
       relations: {
         estadoSolicitud: true,
       },
     });
-
-    return actualizado;
   }
 
   /**

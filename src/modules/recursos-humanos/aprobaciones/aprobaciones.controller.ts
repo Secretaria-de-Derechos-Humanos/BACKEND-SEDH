@@ -29,6 +29,7 @@ export class AprobacionesController {
   listarPermisosOficiales() {
     return this.aprobacionesService.listarPermisosOficiales();
   }
+
   @Get('pendientes')
   @ApiOperation({
     summary: 'Listar permisos personales pendientes de aprobación',
@@ -36,6 +37,7 @@ export class AprobacionesController {
   listarPendientes() {
     return this.aprobacionesService.listarPendientes();
   }
+
   @Get('historial')
   @ApiOperation({
     summary: 'Listar permisos personales aprobados y rechazados',
@@ -44,9 +46,11 @@ export class AprobacionesController {
     return this.aprobacionesService.listarHistorial();
   }
 
+  // SEGUNDA APROBACIÓN: RECURSOS HUMANOS
   @Patch('personal/:id/aprobar')
+  @RequiereRol(3, 5)
   @ApiOperation({
-    summary: 'Aprobar un permiso personal',
+    summary: 'Aprobar un permiso personal por Recursos Humanos',
   })
   @ApiParam({
     name: 'id',
@@ -57,6 +61,7 @@ export class AprobacionesController {
 
     return this.aprobacionesService.aprobarPermisoPersonal(id, emailAprobador);
   }
+
   @Patch('personal/:id/rechazar')
   @ApiOperation({
     summary: 'Rechazar un permiso personal',
@@ -74,8 +79,10 @@ export class AprobacionesController {
     @Req() req: any,
   ) {
     const emailAprobador = this.obtenerEmailUsuario(req);
+
     return this.aprobacionesService.rechazarPermisoPersonal(id, emailAprobador, dto.motivoRechazo);
   }
+
   @Patch('oficial/:id/aprobar')
   @ApiOperation({
     summary: 'Aprobar un permiso oficial',
@@ -110,8 +117,10 @@ export class AprobacionesController {
 
     return this.aprobacionesService.rechazarPermisoOficial(id, emailAprobador, dto.motivoRechazo);
   }
+
   private obtenerEmailUsuario(req: any): string {
     const email = req.user?.email ?? req.user?.emailInstitucional ?? req.user?.username;
+
     if (!email) {
       throw new Error('No se pudo obtener el correo del usuario autenticado');
     }
