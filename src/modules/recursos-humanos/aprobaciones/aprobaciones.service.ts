@@ -262,9 +262,6 @@ export class AprobacionesService {
       where: {
         idPermisoPersonal,
       },
-      relations: {
-        estadoSolicitud: true,
-      },
     });
 
     if (!permiso) {
@@ -279,17 +276,42 @@ export class AprobacionesService {
 
     const estadoAprobado = await this.obtenerEstadoPorNombre('APROBADO');
 
-    permiso.idEstadoSolicitud = estadoAprobado.idEstadoSolicitud;
+    const resultado = await this.dataSource.query(
+      `
+      UPDATE rrhh.permisos_personales
+      SET
+        idestadosolicitud = $2::uuid,
+        priaprobacion = $3,
+        motrechazo = NULL,
+        actualizadoen = CURRENT_DATE,
+        actualizadopor = $3
+      WHERE idpermisopersonal = $1::uuid
+        AND idestadosolicitud = $4::uuid
+      RETURNING idpermisopersonal
+    `,
+      [
+        idPermisoPersonal,
+        estadoAprobado.idEstadoSolicitud,
+        emailAprobador,
+        estadoEnProceso.idEstadoSolicitud,
+      ],
+    );
 
-    permiso.priAprobacion = emailAprobador;
-    permiso.motRechazo = null;
+    if (!resultado || resultado.length === 0) {
+      throw new BadRequestException(
+        'No se pudo aprobar el permiso personal. Verifique su estado actual.',
+      );
+    }
 
-    const actualizado = await this.permisoPersonalRepo.save(permiso);
+    const actualizado = await this.permisoPersonalRepo.findOne({
+      where: {
+        idPermisoPersonal,
+      },
+      relations: {
+        estadoSolicitud: true,
+      },
+    });
 
-    /*
-     * No se devuelve success/data manualmente
-     * porque el proyecto tiene un interceptor global.
-     */
     return actualizado;
   }
 
