@@ -110,15 +110,11 @@ export class SolicitudesAgenteSeguridadService {
             ON d.iddependencia =
                c.iddependencia
 
-          WHERE UPPER(
-                  TRIM(
-                    es.nomestado
-                  )
-                ) =
-                'APROBADO'
-
-            AND pp.fecsolicitud =
-                CURRENT_DATE
+         WHERE UPPER(
+        TRIM(
+          es.nomestado
+        )
+      ) = 'APROBADO'
 
           ORDER BY
             pp.fecsolicitud ASC,
