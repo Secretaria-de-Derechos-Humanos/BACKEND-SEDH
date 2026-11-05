@@ -55,7 +55,11 @@ export class SolicitudesJefeInmediatoController {
     if (!user || !email) {
       throw new UnauthorizedException('No se pudo identificar al usuario autenticado');
     }
-    const rolPermitido = user.roles?.find((item) => [2, 5].includes(Number(item.r)));
+
+    const rolPermitido =
+      user.roles?.find((item) => Number(item.r) === 5) ??
+      user.roles?.find((item) => Number(item.r) === 2);
+
     if (!rolPermitido) {
       throw new UnauthorizedException('El usuario no posee un rol autorizado para este recurso');
     }
