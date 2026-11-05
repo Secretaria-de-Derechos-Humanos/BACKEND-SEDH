@@ -49,25 +49,32 @@ export class AprobacionesService {
    * Permisos oficiales y vacaciones:
    * Conservan su consulta actual.
    */
-  async listarPendientes() {
+  async listarPendientes(rol: number) {
     const estadoEnProceso = await this.obtenerEstadoPorNombre('EN PROCESO');
 
-    const [permisosPersonales, permisosOficiales, solicitudesVacaciones] = await Promise.all([
-      // PERMISOS PERSONALES:
-      // Primera aprobación realizada y segunda pendiente.
-      this.permisoPersonalRepo
-        .createQueryBuilder('permiso')
-        .leftJoinAndSelect('permiso.tipoSolicitud', 'tipoSolicitud')
-        .leftJoinAndSelect('permiso.estadoSolicitud', 'estadoSolicitud')
-        .where('permiso.idEstadoSolicitud = :estado', {
-          estado: estadoEnProceso.idEstadoSolicitud,
-        })
-        .andWhere("NULLIF(TRIM(permiso.priAprobacion), '') IS NOT NULL")
-        .andWhere("NULLIF(TRIM(permiso.segAprobacion), '') IS NULL")
-        .orderBy('permiso.fecSolicitud', 'DESC')
-        .getMany(),
+    const esAdministrador = Number(rol) === 5;
 
-      // PERMISOS OFICIALES: SIN CAMBIOS.
+    const [permisosPersonales, permisosOficiales, solicitudesVacaciones] = await Promise.all([
+      // PERMISOS PERSONALES
+      (() => {
+        const query = this.permisoPersonalRepo
+          .createQueryBuilder('permiso')
+          .leftJoinAndSelect('permiso.tipoSolicitud', 'tipoSolicitud')
+          .leftJoinAndSelect('permiso.estadoSolicitud', 'estadoSolicitud')
+          .where('permiso.idEstadoSolicitud = :estado', {
+            estado: estadoEnProceso.idEstadoSolicitud,
+          });
+
+        if (!esAdministrador) {
+          query
+            .andWhere("NULLIF(TRIM(permiso.priAprobacion), '') IS NOT NULL")
+            .andWhere("NULLIF(TRIM(permiso.segAprobacion), '') IS NULL");
+        }
+
+        return query.orderBy('permiso.fecSolicitud', 'DESC').getMany();
+      })(),
+
+      // PERMISOS OFICIALES: SIN CAMBIOS
       this.permisosOficialesRepo.find({
         where: {
           idEstadoSolicitud: estadoEnProceso.idEstadoSolicitud,
@@ -81,7 +88,7 @@ export class AprobacionesService {
         },
       }),
 
-      // VACACIONES: SIN CAMBIOS.
+      // VACACIONES: SIN CAMBIOS
       this.vacacionesRepo.find({
         where: {
           idEstadoSolicitud: estadoEnProceso.idEstadoSolicitud,

@@ -34,8 +34,10 @@ export class AprobacionesController {
   @ApiOperation({
     summary: 'Listar permisos personales pendientes de aprobación',
   })
-  listarPendientes() {
-    return this.aprobacionesService.listarPendientes();
+  listarPendientes(@Req() req: any) {
+    const rol = this.obtenerRolUsuario(req);
+
+    return this.aprobacionesService.listarPendientes(rol);
   }
 
   @Get('historial')
@@ -126,5 +128,24 @@ export class AprobacionesController {
     }
 
     return email;
+  }
+  private obtenerRolUsuario(req: any): number {
+    const roles = req.user?.roles ?? [];
+
+    // Priorizar ADMIN RRHH
+    const rolAdmin = roles.find((item: any) => Number(item.r) === 5);
+
+    if (rolAdmin) {
+      return 5;
+    }
+
+    // Mantener los demás roles autorizados
+    const rolPermitido = roles.find((item: any) => [2, 3].includes(Number(item.r)));
+
+    if (!rolPermitido) {
+      throw new Error('No se pudo identificar un rol autorizado');
+    }
+
+    return Number(rolPermitido.r);
   }
 }
