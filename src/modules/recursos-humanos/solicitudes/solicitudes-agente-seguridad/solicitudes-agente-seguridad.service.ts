@@ -32,96 +32,96 @@ export class SolicitudesAgenteSeguridadService {
     try {
       const rol = this.obtenerRolAgente(user);
 
-      const rows = await this.dataSource.query(
-        `
-          SELECT
-            pp.idpermisopersonal
-              AS idpermiso,
+      const rows = await this.dataSource.query(`
+      SELECT *
+      FROM (
+        SELECT
+          pp.idpermisopersonal AS idpermiso,
+          pp.fecsolicitud AS fecha,
+          'PERMISO PERSONAL' AS tipo,
+          es.nomestado AS estado,
+          pp.motivo,
+          pp.horsolicitadas::text AS "horasSolicitadas",
+          pp.horsalida::text AS "horaSalida",
+          pp.horretorno::text AS "horaRetorno",
+          pp.estadoretorno AS "estadoRetorno",
+          pp.emailinstitucional AS email,
 
-            pp.fecsolicitud
-              AS fecha,
+          json_build_object(
+            'nombre', e.prinombre,
+            'segundoNombre', e.segnombre,
+            'apellido', e.priapellido,
+            'segundoApellido', e.segapellido
+          ) AS empleado,
 
-            'PERMISO PERSONAL'
-              AS tipo,
+          c.nomcargo AS cargo,
+          d.nomdependencia AS dependencia,
+          'PERSONAL' AS "tipoPermiso"
 
-            es.nomestado
-              AS estado,
+        FROM rrhh.permisos_personales pp
 
-            pp.motivo,
+        INNER JOIN rrhh.estados_solicitudes es
+          ON es.idestadosolicitud = pp.idestadosolicitud
 
-            pp.horsolicitadas::text
-              AS "horasSolicitadas",
+        INNER JOIN rrhh.empleados e
+          ON LOWER(TRIM(e.emailinstitucional)) =
+             LOWER(TRIM(pp.emailinstitucional))
 
-            pp.horsalida::text
-              AS "horaSalida",
+        LEFT JOIN rrhh.cargos c
+          ON c.idcargo = e.idcargo
 
-            pp.horretorno::text
-              AS "horaRetorno",
+        LEFT JOIN rrhh.dependencias d
+          ON d.iddependencia = c.iddependencia
 
-            pp.estadoretorno
-              AS "estadoRetorno",
+        WHERE UPPER(TRIM(es.nomestado)) = 'APROBADO'
 
-            pp.emailinstitucional
-              AS email,
+        UNION ALL
 
-            json_build_object(
-              'nombre',
-                e.prinombre,
-              'segundoNombre',
-                e.segnombre,
-              'apellido',
-                e.priapellido,
-              'segundoApellido',
-                e.segapellido
-            ) AS empleado,
+        SELECT
+          po.idpermisooficial AS idpermiso,
+          po.fecsolicitud AS fecha,
+          'PERMISO OFICIAL' AS tipo,
+          es.nomestado AS estado,
+          po.motivo,
+          po.tiempolimite::text AS "horasSolicitadas",
+          po.horsalida::text AS "horaSalida",
+          po.horretorno::text AS "horaRetorno",
+          po.estadoretorno AS "estadoRetorno",
+          po.emailinstitucional AS email,
 
-            c.nomcargo
-              AS cargo,
+          json_build_object(
+            'nombre', e.prinombre,
+            'segundoNombre', e.segnombre,
+            'apellido', e.priapellido,
+            'segundoApellido', e.segapellido
+          ) AS empleado,
 
-            d.nomdependencia
-              AS dependencia,
+          c.nomcargo AS cargo,
+          d.nomdependencia AS dependencia,
+          'OFICIAL' AS "tipoPermiso"
 
-            'PERSONAL'
-              AS "tipoPermiso"
+        FROM rrhh.permisos_oficiales po
 
-          FROM rrhh.permisos_personales pp
+        INNER JOIN rrhh.estados_solicitudes es
+          ON es.idestadosolicitud = po.idestadosolicitud
 
-          INNER JOIN rrhh.estados_solicitudes es
-            ON es.idestadosolicitud =
-               pp.idestadosolicitud
+        INNER JOIN rrhh.empleados e
+          ON LOWER(TRIM(e.emailinstitucional)) =
+             LOWER(TRIM(po.emailinstitucional))
 
-          INNER JOIN rrhh.empleados e
-            ON LOWER(
-                 TRIM(
-                   e.emailinstitucional
-                 )
-               ) =
-               LOWER(
-                 TRIM(
-                   pp.emailinstitucional
-                 )
-               )
+        LEFT JOIN rrhh.cargos c
+          ON c.idcargo = e.idcargo
 
-          LEFT JOIN rrhh.cargos c
-            ON c.idcargo =
-               e.idcargo
+        LEFT JOIN rrhh.dependencias d
+          ON d.iddependencia = c.iddependencia
 
-          LEFT JOIN rrhh.dependencias d
-            ON d.iddependencia =
-               c.iddependencia
+        WHERE UPPER(TRIM(es.nomestado)) = 'APROBADO'
+      ) AS solicitudes
 
-         WHERE UPPER(
-        TRIM(
-          es.nomestado
-        )
-      ) = 'APROBADO'
-
-          ORDER BY
-            pp.fecsolicitud ASC,
-            e.priapellido ASC,
-            e.prinombre ASC
-          `,
-      );
+      ORDER BY
+        fecha ASC,
+        tipo ASC
+    `);
 
       return {
         status: 'OK',
@@ -146,39 +146,42 @@ export class SolicitudesAgenteSeguridadService {
   async registrarHoraSalida(dto: RegistrarHoraSalidaDto, user: JwtPayload) {
     try {
       this.obtenerRolAgente(user);
+
+      const esOficial = dto.tipoPermiso === 'OFICIAL';
+
+      const tabla = esOficial ? 'rrhh.permisos_oficiales' : 'rrhh.permisos_personales';
+
+      const campoId = esOficial ? 'idpermisooficial' : 'idpermisopersonal';
+
       const rows = await this.dataSource.query(
         `
-          UPDATE rrhh.permisos_personales
-         SET
-            horsalida = $2::time,
-            estadoretorno = 'FUERA',
-            guardiaturno = $3,
-            actualizadoen = CURRENT_DATE,
-            actualizadopor = $3
-
-          WHERE idpermisopersonal =
-                $1::uuid
-
-            AND horsalida IS NULL
-
-            AND horretorno IS NULL
-
-          RETURNING
-            idpermisopersonal,
-            horsalida
-          `,
+        UPDATE ${tabla}
+        SET
+          horsalida = $2::time,
+          estadoretorno = 'FUERA',
+          guardiaturno = $3,
+          actualizadoen = CURRENT_DATE,
+          actualizadopor = $3
+        WHERE ${campoId} = $1::uuid
+          AND horsalida IS NULL
+          AND horretorno IS NULL
+        RETURNING
+          ${campoId},
+          horsalida
+      `,
         [dto.idPermiso, dto.horaSalida, user.email],
       );
 
       if (!rows?.length) {
         throw new BadRequestException(
-          'No se pudo registrar la salida. Puede que ya haya sido registrada.',
+          'No se pudo registrar la salida. Puede que el permiso ya tenga una salida o retorno registrado.',
         );
       }
 
       return {
         status: 'OK',
-        tipo: 'PERMISO PERSONAL',
+        tipo: esOficial ? 'PERMISO OFICIAL' : 'PERMISO PERSONAL',
+        tipoPermiso: dto.tipoPermiso,
         idpermiso: dto.idPermiso,
         mensaje: 'Hora de salida registrada correctamente',
         horaSalida: rows[0].horsalida,
@@ -200,32 +203,43 @@ export class SolicitudesAgenteSeguridadService {
   async registrarHoraRetorno(dto: RegistrarHoraRetornoDto, user: JwtPayload) {
     try {
       this.obtenerRolAgente(user);
+
+      const esOficial = dto.tipoPermiso === 'OFICIAL';
+
       return await this.dataSource.transaction(async (manager) => {
+        const tabla = esOficial ? 'rrhh.permisos_oficiales' : 'rrhh.permisos_personales';
+
+        const campoId = esOficial ? 'idpermisooficial' : 'idpermisopersonal';
+
+        const campoTiempo = esOficial ? 'tiempolimite' : 'horsolicitadas';
+
         const permisos = await manager.query(
           `
-            SELECT
-              idpermisopersonal,
-              emailinstitucional,
-              horsolicitadas,
-              horsalida,
-              horretorno,
-              estadoretorno
-            FROM rrhh.permisos_personales
-                WHERE idpermisopersonal =
-                      $1::uuid
-                FOR UPDATE
-                `,
+          SELECT
+            emailinstitucional,
+            ${campoTiempo} AS tiempo_solicitado,
+            horsalida,
+            horretorno,
+            estadoretorno
+          FROM ${tabla}
+          WHERE ${campoId} = $1::uuid
+          FOR UPDATE
+        `,
           [dto.idPermiso],
         );
 
         const permiso = permisos?.[0];
 
         if (!permiso) {
-          throw new NotFoundException('Permiso personal no encontrado');
+          throw new NotFoundException(
+            esOficial ? 'Permiso oficial no encontrado' : 'Permiso personal no encontrado',
+          );
         }
+
         if (!permiso.horsalida) {
           throw new BadRequestException('Debe registrar primero la hora de salida');
         }
+
         if (permiso.estadoretorno === 'NO_RETORNO') {
           throw new BadRequestException(
             'El permiso está marcado como no retornado y no puede registrar un retorno.',
@@ -235,90 +249,75 @@ export class SolicitudesAgenteSeguridadService {
         if (permiso.horretorno) {
           throw new BadRequestException('La hora de retorno ya fue registrada');
         }
+
         const calculo = await manager.query(
           `
-                SELECT
-                  (
-                    EXTRACT(
-                      EPOCH FROM (
-                        $1::time -
-                        $2::time
-                      )
-                    ) / 60
-                  )::integer
-                    AS minutos_reales,
+          SELECT
+            (
+              EXTRACT(
+                EPOCH FROM ($1::time - $2::time)
+              ) / 60
+            )::integer AS minutos_reales,
 
-                  (
-                    EXTRACT(
-                      EPOCH FROM
-                        $3::time
-                    ) / 60
-                  )::integer
-                    AS minutos_solicitados
-                `,
-          [dto.horaRetorno, permiso.horsalida, permiso.horsolicitadas],
+            (
+              EXTRACT(EPOCH FROM $3::time) / 60
+            )::integer AS minutos_solicitados
+        `,
+          [dto.horaRetorno, permiso.horsalida, permiso.tiempo_solicitado],
         );
+
         const minutosReales = Number(calculo[0]?.minutos_reales ?? 0);
         const minutosSolicitados = Number(calculo[0]?.minutos_solicitados ?? 0);
+
         if (minutosReales <= 0) {
           throw new BadRequestException(
             'La hora de retorno debe ser posterior a la hora de salida',
           );
         }
-        const minutosDevueltos = Math.max(0, minutosSolicitados - minutosReales);
+
         await manager.query(
           `
-              UPDATE rrhh.permisos_personales
-            SET
-                horretorno = $2::time,
-                estadoretorno = 'RETORNADO',
-                guardiaturno = $3,
-                actualizadoen = CURRENT_DATE,
-                actualizadopor = $3
-            WHERE idpermisopersonal = $1::uuid
-              `,
+          UPDATE ${tabla}
+          SET
+            horretorno = $2::time,
+            estadoretorno = 'RETORNADO',
+            guardiaturno = $3,
+            actualizadoen = CURRENT_DATE,
+            actualizadopor = $3
+          WHERE ${campoId} = $1::uuid
+        `,
           [dto.idPermiso, dto.horaRetorno, user.email],
         );
 
-        if (minutosDevueltos > 0) {
-          await manager.query(
-            `
-                UPDATE rrhh.horas_disponibles
-                SET
-                  hordisponibles =
-                    (
-                      hordisponibles::interval +
-                      (
-                        $2 ||
-                        ' minutes'
-                      )::interval
-                    )::time,
+        let minutosDevueltos = 0;
 
-                  actualizadoen =
-                    CURRENT_DATE,
+        // La devolución de minutos aplica únicamente a permisos personales.
+        if (!esOficial) {
+          minutosDevueltos = Math.max(0, minutosSolicitados - minutosReales);
 
-                  actualizadopor =
-                    $3
-
-                WHERE LOWER(
-                        TRIM(
-                          emailinstitucional
-                        )
-                      ) =
-                      LOWER(
-                        TRIM(
-                          $1
-                        )
-                      )
-                `,
-            [permiso.emailinstitucional, minutosDevueltos, user.email],
-          );
+          if (minutosDevueltos > 0) {
+            await manager.query(
+              `
+              UPDATE rrhh.horas_disponibles
+              SET
+                hordisponibles = (
+                  hordisponibles::interval +
+                  ($2 || ' minutes')::interval
+                )::time,
+                actualizadoen = CURRENT_DATE,
+                actualizadopor = $3
+              WHERE LOWER(TRIM(emailinstitucional)) =
+                    LOWER(TRIM($1))
+            `,
+              [permiso.emailinstitucional, minutosDevueltos, user.email],
+            );
+          }
         }
 
         return {
           status: 'OK',
-
-          tipo: 'PERMISO PERSONAL',
+          tipo: esOficial ? 'PERMISO OFICIAL' : 'PERMISO PERSONAL',
+          tipoPermiso: dto.tipoPermiso,
           idpermiso: dto.idPermiso,
           mensaje: 'Hora de retorno registrada correctamente',
           minutosSolicitados,
@@ -335,6 +334,7 @@ export class SolicitudesAgenteSeguridadService {
       if (error instanceof HttpException) {
         throw error;
       }
+
       throw new InternalServerErrorException('Ocurrió un error al registrar la hora de retorno');
     }
   }
@@ -343,25 +343,32 @@ export class SolicitudesAgenteSeguridadService {
     try {
       this.obtenerRolAgente(user);
 
+      const esOficial = dto.tipoPermiso === 'OFICIAL';
+
       return await this.dataSource.transaction(async (manager) => {
+        const tabla = esOficial ? 'rrhh.permisos_oficiales' : 'rrhh.permisos_personales';
+
+        const campoId = esOficial ? 'idpermisooficial' : 'idpermisopersonal';
+
         const permisos = await manager.query(
           `
-            SELECT
-              idpermisopersonal,
-              horsalida,
-              horretorno,
-              estadoretorno
-            FROM rrhh.permisos_personales
-            WHERE idpermisopersonal = $1::uuid
-            FOR UPDATE
-          `,
+          SELECT
+            horsalida,
+            horretorno,
+            estadoretorno
+          FROM ${tabla}
+          WHERE ${campoId} = $1::uuid
+          FOR UPDATE
+        `,
           [dto.idPermiso],
         );
 
         const permiso = permisos?.[0];
 
         if (!permiso) {
-          throw new NotFoundException('Permiso personal no encontrado');
+          throw new NotFoundException(
+            esOficial ? 'Permiso oficial no encontrado' : 'Permiso personal no encontrado',
+          );
         }
 
         if (!permiso.horsalida) {
@@ -378,20 +385,21 @@ export class SolicitudesAgenteSeguridadService {
 
         await manager.query(
           `
-            UPDATE rrhh.permisos_personales
-            SET
-              estadoretorno = 'NO_RETORNO',
-              guardiaturno = $2,
-              actualizadoen = CURRENT_DATE,
-              actualizadopor = $2
-            WHERE idpermisopersonal = $1::uuid
-          `,
+          UPDATE ${tabla}
+          SET
+            estadoretorno = 'NO_RETORNO',
+            guardiaturno = $2,
+            actualizadoen = CURRENT_DATE,
+            actualizadopor = $2
+          WHERE ${campoId} = $1::uuid
+        `,
           [dto.idPermiso, user.email],
         );
 
         return {
           status: 'OK',
-          tipo: 'PERMISO PERSONAL',
+          tipo: esOficial ? 'PERMISO OFICIAL' : 'PERMISO PERSONAL',
+          tipoPermiso: dto.tipoPermiso,
           idpermiso: dto.idPermiso,
           mensaje: 'Permiso marcado como no retornado',
         };

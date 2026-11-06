@@ -1,6 +1,6 @@
 import { ApiProperty } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
-import { IsInt, IsNotEmpty, IsPositive, IsString, IsUUID, Matches } from 'class-validator';
+import { IsIn, IsInt, IsNotEmpty, IsPositive, IsString, IsUUID, Matches } from 'class-validator';
 
 export class RegistrarHoraRetornoDto {
   @ApiProperty({
@@ -25,7 +25,14 @@ export class RegistrarHoraRetornoDto {
     message: 'La hora de retorno debe tener el formato HH:mm',
   })
   horaRetorno!: string;
-
+  @ApiProperty({
+    example: 'PERSONAL',
+    enum: ['PERSONAL', 'OFICIAL'],
+  })
+  @IsIn(['PERSONAL', 'OFICIAL'], {
+    message: 'El tipo de permiso debe ser PERSONAL u OFICIAL',
+  })
+  tipoPermiso!: 'PERSONAL' | 'OFICIAL';
   @ApiProperty({
     example: 1,
   })

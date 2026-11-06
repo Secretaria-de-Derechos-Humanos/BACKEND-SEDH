@@ -1,6 +1,6 @@
 import { ApiProperty } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
-import { IsInt, IsNotEmpty, IsPositive, IsUUID } from 'class-validator';
+import { IsIn, IsInt, IsNotEmpty, IsPositive, IsUUID } from 'class-validator';
 
 export class MarcarNoRetornoDto {
   @ApiProperty({
@@ -13,6 +13,14 @@ export class MarcarNoRetornoDto {
     message: 'El identificador del permiso es obligatorio',
   })
   idPermiso!: string;
+  @ApiProperty({
+    example: 'PERSONAL',
+    enum: ['PERSONAL', 'OFICIAL'],
+  })
+  @IsIn(['PERSONAL', 'OFICIAL'], {
+    message: 'El tipo de permiso debe ser PERSONAL u OFICIAL',
+  })
+  tipoPermiso!: 'PERSONAL' | 'OFICIAL';
 
   @ApiProperty({
     example: 1,

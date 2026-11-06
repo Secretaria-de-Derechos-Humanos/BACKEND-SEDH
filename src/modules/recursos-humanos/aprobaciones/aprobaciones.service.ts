@@ -49,6 +49,7 @@ export class AprobacionesService {
    * Permisos oficiales y vacaciones:
    * Conservan su consulta actual.
    */
+
   async listarPendientes(rol: number) {
     const estadoEnProceso = await this.obtenerEstadoPorNombre('EN PROCESO');
 
@@ -105,11 +106,37 @@ export class AprobacionesService {
       }),
     ]);
 
+    // CONSULTAR SALDOS REALES DE HORAS DISPONIBLES
+    const correosPersonales = [
+      ...new Set(
+        permisosPersonales.map((permiso) => permiso.emailInstitucional.trim().toLowerCase()),
+      ),
+    ];
+
+    const saldosDisponibles = correosPersonales.length
+      ? await this.dataSource.query(
+          `
+        SELECT
+          LOWER(TRIM(emailinstitucional)) AS correo,
+          hordisponibles AS "horasDisponibles"
+        FROM rrhh.horas_disponibles
+        WHERE LOWER(TRIM(emailinstitucional)) = ANY($1::text[])
+        `,
+          [correosPersonales],
+        )
+      : [];
+
+    const mapaSaldos = new Map<string, string>(
+      saldosDisponibles.map((item: any) => [item.correo, item.horasDisponibles]),
+    );
+
+    // MAPEAR PERMISOS PERSONALES
     const personales = permisosPersonales.map((permiso) => ({
       id: permiso.idPermisoPersonal,
       idPermisoPersonal: permiso.idPermisoPersonal,
       idPermisoOficial: null,
       idPermisoVaca: null,
+
       categoria: 'PERMISO_PERSONAL',
       origen: 'PERSONAL',
       emailInstitucional: permiso.emailInstitucional,
@@ -122,7 +149,14 @@ export class AprobacionesService {
       horSalida: permiso.horSalida,
       horRetorno: permiso.horRetorno,
       horSolicitadas: permiso.horSolicitadas,
+
+      // Se conserva el identificador original
       idHorasDisponibles: permiso.idHorasDisponibles,
+
+      // Se devuelve el saldo real de horas
+      horasDisponibles:
+        mapaSaldos.get(permiso.emailInstitucional.trim().toLowerCase()) ?? '00:00:00',
+
       motivo: permiso.motivo,
       catEmergencia: permiso.catEmergencia ?? false,
       guardiaTurno: null,
@@ -130,11 +164,11 @@ export class AprobacionesService {
       fecFinal: null,
       fecRetorno: null,
       cantVacaciones: null,
-      totDiasRestantes: null,
 
       estado: permiso.estadoSolicitud?.nomEstado ?? 'EN PROCESO',
     }));
 
+    // MAPEAR PERMISOS OFICIALES
     const oficiales = permisosOficiales.map((permiso) => ({
       id: permiso.idPermisoOficial,
       idPermisoPersonal: permiso.idPermisoOficial,
@@ -166,6 +200,7 @@ export class AprobacionesService {
       estado: permiso.estadoSolicitud?.nomEstado ?? 'EN PROCESO',
     }));
 
+    // MAPEAR VACACIONES
     const vacaciones = solicitudesVacaciones.map((vacacion) => ({
       id: vacacion.idPermisoVaca,
       idPermisoPersonal: vacacion.idPermisoVaca,
@@ -214,11 +249,10 @@ export class AprobacionesService {
    * Lista permisos personales aprobados
    * y rechazados.
    */
+
   async listarHistorial() {
     const estadoAprobado = await this.obtenerEstadoPorNombre('APROBADO');
-
     const estadoRechazado = await this.obtenerEstadoPorNombre('RECHAZADO');
-
     const permisos = await this.permisoPersonalRepo.find({
       where: {
         idEstadoSolicitud: In([
@@ -235,6 +269,34 @@ export class AprobacionesService {
       },
     });
 
+    // Obtener correos institucionales de los empleados del historial
+    const correos = [
+      ...new Set(
+        permisos
+          .map((permiso) => permiso.emailInstitucional?.trim().toLowerCase())
+          .filter((correo): correo is string => Boolean(correo)),
+      ),
+    ];
+
+    // Consultar el saldo ACTUAL de horas disponibles
+    const saldosDisponibles = correos.length
+      ? await this.dataSource.query(
+          `
+        SELECT
+          LOWER(TRIM(emailinstitucional)) AS correo,
+          hordisponibles AS "horasDisponibles"
+        FROM rrhh.horas_disponibles
+        WHERE LOWER(TRIM(emailinstitucional)) = ANY($1::text[])
+        `,
+          [correos],
+        )
+      : [];
+
+    // Relacionar el saldo actual con cada empleado
+    const mapaSaldos = new Map<string, string>(
+      saldosDisponibles.map((item: any) => [item.correo, item.horasDisponibles]),
+    );
+
     return permisos.map((permiso) => ({
       id: permiso.idPermisoPersonal,
       categoria: 'PERMISO_PERSONAL',
@@ -246,7 +308,11 @@ export class AprobacionesService {
       horaSalida: permiso.horSalida,
       horaRetorno: permiso.horRetorno,
       horasSolicitadas: permiso.horSolicitadas,
-      horasDisponibles: permiso.idHorasDisponibles,
+
+      // Saldo actual del empleado, no el ID del registro
+      horasDisponibles:
+        mapaSaldos.get(permiso.emailInstitucional.trim().toLowerCase()) ?? '00:00:00',
+
       motivo: permiso.motivo,
       emergencia: permiso.catEmergencia ?? false,
 
