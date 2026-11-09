@@ -13,6 +13,8 @@ import { PermisoPersonal } from './entities/permiso-personal.entity';
 import { NotificacionesService } from './../../notificaciones/notificaciones.service';
 import { RegistrarPermisoManualDto } from './dto/registrar-permiso-manual.dto';
 import { RegistrarJustificacionLlegadaTardiaDto } from './dto/registrar-justificacion-llegada-tardia.dto';
+import { unlink } from 'fs/promises';
+import { relative, sep } from 'path';
 
 interface DisponibilidadRow {
   hordisponibles: string | null;
@@ -136,62 +138,104 @@ export class PermisosPersonalesService {
   async insertarPermisoPersonal(
     dto: InsertarPermisoPersonalDto,
     email: string,
+    archivo?: Express.Multer.File,
   ): Promise<ResultadoPermisoPersonal> {
+    let transaccionConfirmada = false;
+
     try {
-      const rows = (await this.dataSource.query(
-        `
-      SELECT rrhh.insertar_permiso_personal(
-        $1::character varying,
-        $2::date,
-        $3::time without time zone,
-        $4::character varying,
-        $5::boolean
-      ) AS resultado
-      `,
-        [email, dto.fecha, dto.horas, dto.motivo.trim(), dto.emergencia],
-      )) as ResultadoFuncionRow[];
-
-      const resultado = rows[0]?.resultado;
-
-      if (!resultado) {
-        throw new InternalServerErrorException('La función no devolvió ningún resultado');
-      }
-
-      if (String(resultado.status).toUpperCase() !== 'OK') {
+      // El comprobante es obligatorio únicamente para emergencias.
+      if (dto.emergencia && !archivo) {
         throw new BadRequestException(
-          resultado.message ?? 'No se pudo registrar el permiso personal',
+          'Debe adjuntar el comprobante médico para registrar una emergencia',
         );
       }
 
       // ============================================================
-      // OBTENER ID DEL PERMISO CREADO
+      // REGISTRAR PERMISO Y GUARDAR REFERENCIA DEL ARCHIVO
       // ============================================================
 
-      const permisoCreado = await this.dataSource.query(
-        `
-      SELECT
-        pp.idpermisopersonal,
-        pp.emailinstitucional,
-        pp.fecsolicitud,
-        pp.horsolicitadas,
-        pp.motivo,
-        e.idsupinmediato
-      FROM rrhh.permisos_personales pp
+      const { resultado, permiso } = await this.dataSource.transaction(async (manager) => {
+        const rows = (await manager.query(
+          `
+          SELECT rrhh.insertar_permiso_personal(
+            $1::character varying,
+            $2::date,
+            $3::time without time zone,
+            $4::character varying,
+            $5::boolean
+          ) AS resultado
+          `,
+          [email, dto.fecha, dto.horas, dto.motivo.trim(), dto.emergencia],
+        )) as ResultadoFuncionRow[];
 
-      INNER JOIN rrhh.empleados e
-        ON LOWER(TRIM(e.emailinstitucional)) =
-           LOWER(TRIM(pp.emailinstitucional))
+        const resultado = rows[0]?.resultado;
 
-      WHERE LOWER(TRIM(pp.emailinstitucional)) =
-            LOWER(TRIM($1))
+        if (!resultado) {
+          throw new InternalServerErrorException('La función no devolvió ningún resultado');
+        }
 
-      ORDER BY pp.fecsolicitud DESC
+        if (String(resultado.status).toUpperCase() !== 'OK') {
+          throw new BadRequestException(
+            resultado.message ?? 'No se pudo registrar el permiso personal',
+          );
+        }
 
-      LIMIT 1
-      `,
-        [email],
-      );
-      const permiso = permisoCreado?.[0];
+        // Obtener el ID exacto devuelto por la función SQL.
+        const idPermiso = resultado.idpermiso;
+
+        if (typeof idPermiso !== 'string' || !idPermiso.trim()) {
+          throw new InternalServerErrorException('La función no devolvió el ID del permiso creado');
+        }
+
+        // Guardar la ruta del comprobante en el permiso correspondiente.
+        if (archivo) {
+          const rutaRelativa = relative(process.cwd(), archivo.path).split(sep).join('/');
+
+          const actualizacion = await manager.query(
+            `
+            UPDATE rrhh.permisos_personales
+            SET referenciadocumento = $1
+            WHERE idpermisopersonal = $2::uuid
+            RETURNING idpermisopersonal
+            `,
+            [rutaRelativa, idPermiso],
+          );
+
+          if (!actualizacion?.length) {
+            throw new InternalServerErrorException(
+              'No se pudo asociar el comprobante al permiso personal',
+            );
+          }
+        }
+
+        // Consultar el permiso recién creado por su ID.
+        const permisoCreado = await manager.query(
+          `
+          SELECT
+            pp.idpermisopersonal,
+            pp.emailinstitucional,
+            pp.fecsolicitud,
+            pp.horsolicitadas,
+            pp.motivo,
+            e.idsupinmediato
+          FROM rrhh.permisos_personales pp
+          INNER JOIN rrhh.empleados e
+            ON LOWER(TRIM(e.emailinstitucional)) =
+               LOWER(TRIM(pp.emailinstitucional))
+          WHERE pp.idpermisopersonal = $1::uuid
+          LIMIT 1
+          `,
+          [idPermiso],
+        );
+
+        return {
+          resultado,
+          permiso: permisoCreado?.[0],
+        };
+      });
+
+      transaccionConfirmada = true;
+
       // ============================================================
       // CREAR NOTIFICACIÓN PARA EL JEFE INMEDIATO
       // ============================================================
@@ -200,12 +244,11 @@ export class PermisosPersonalesService {
         try {
           const jefe = await this.dataSource.query(
             `
-      SELECT
-        emailinstitucional
-      FROM rrhh.empleados
-      WHERE numidentidad = $1
-      LIMIT 1
-      `,
+          SELECT emailinstitucional
+          FROM rrhh.empleados
+          WHERE numidentidad = $1
+          LIMIT 1
+          `,
             [permiso.idsupinmediato],
           );
 
@@ -233,6 +276,19 @@ export class PermisosPersonalesService {
 
       return resultado;
     } catch (error: unknown) {
+      // Si falla la transacción, eliminar el archivo que se había guardado.
+      if (archivo?.path && !transaccionConfirmada) {
+        try {
+          await unlink(archivo.path);
+        } catch (errorArchivo) {
+          this.logger.warn(
+            `No se pudo eliminar el archivo temporal: ${
+              errorArchivo instanceof Error ? errorArchivo.message : String(errorArchivo)
+            }`,
+          );
+        }
+      }
+
       this.logger.error(
         'Error en insertarPermisoPersonal',
         error instanceof Error ? error.stack : String(error),

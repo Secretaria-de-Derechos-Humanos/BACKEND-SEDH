@@ -8,7 +8,15 @@ import {
   Req,
   UnauthorizedException,
   UseGuards,
+  UseInterceptors,
+  UploadedFile,
+  BadRequestException,
 } from '@nestjs/common';
+import { FileInterceptor } from '@nestjs/platform-express';
+import { diskStorage } from 'multer';
+import { mkdirSync } from 'fs';
+import { extname, join } from 'path';
+import { randomUUID } from 'crypto';
 import { ApiBearerAuth, ApiOperation, ApiQuery, ApiTags } from '@nestjs/swagger';
 import { Request } from 'express';
 import { JwtAuthGuard } from '../../../../core/auth/guards/jwt-auth.guard';
@@ -54,12 +62,49 @@ export class PermisosPersonalesController {
   // ============================================================
 
   @Post('insertar')
+  @UseInterceptors(
+    FileInterceptor('archivo', {
+      storage: diskStorage({
+        destination: (_req, _file, callback) => {
+          const directorio = join(process.cwd(), 'uploads', 'permisos-personales');
+
+          mkdirSync(directorio, { recursive: true });
+
+          callback(null, directorio);
+        },
+
+        filename: (_req, file, callback) => {
+          const extension = extname(file.originalname).toLowerCase();
+
+          callback(null, `${randomUUID()}${extension}`);
+        },
+      }),
+
+      limits: {
+        fileSize: 5 * 1024 * 1024,
+      },
+
+      fileFilter: (_req, file, callback) => {
+        const tiposPermitidos = ['application/pdf', 'image/jpeg', 'image/png'];
+
+        if (!tiposPermitidos.includes(file.mimetype)) {
+          return callback(
+            new BadRequestException('Solo se permiten archivos PDF, JPG y PNG'),
+            false,
+          );
+        }
+
+        callback(null, true);
+      },
+    }),
+  )
   @ApiOperation({
     summary: 'Registrar un permiso personal para el usuario autenticado',
   })
   insertarPermisoPersonal(
     @Req() request: RequestAutenticado,
     @Body() dto: InsertarPermisoPersonalDto,
+    @UploadedFile() archivo?: Express.Multer.File,
   ) {
     const email = request.user?.email?.trim();
 
@@ -67,9 +112,8 @@ export class PermisosPersonalesController {
       throw new UnauthorizedException('No se pudo identificar al usuario autenticado');
     }
 
-    return this.permisosPersonalesService.insertarPermisoPersonal(dto, email);
+    return this.permisosPersonalesService.insertarPermisoPersonal(dto, email, archivo);
   }
-
   // ============================================================
   // ANULAR PERMISO PERSONAL
   // ============================================================

@@ -1,5 +1,6 @@
 import { ApiProperty } from '@nestjs/swagger';
 import { IsBoolean, IsDateString, IsNotEmpty, IsString, Matches, MaxLength } from 'class-validator';
+import { Transform } from 'class-transformer';
 
 export class InsertarPermisoPersonalDto {
   @ApiProperty({
@@ -41,9 +42,14 @@ export class InsertarPermisoPersonalDto {
     message: 'El motivo no puede superar los 500 caracteres',
   })
   motivo!: string;
-
   @ApiProperty({
     example: false,
+    description: 'Indica si el permiso corresponde a una emergencia',
+  })
+  @Transform(({ value }) => {
+    if (value === true || value === 'true') return true;
+    if (value === false || value === 'false') return false;
+    return value;
   })
   @IsBoolean({
     message: 'Emergencia debe ser verdadero o falso',
