@@ -112,7 +112,21 @@ export class PermisosPersonalesController {
       throw new UnauthorizedException('No se pudo identificar al usuario autenticado');
     }
 
-    return this.permisosPersonalesService.insertarPermisoPersonal(dto, email, archivo);
+    // Recuperar el valor original enviado por FormData.
+    const emergenciaOriginal = request.body?.emergencia;
+
+    const emergencia =
+      typeof emergenciaOriginal === 'string'
+        ? emergenciaOriginal.trim().toLowerCase() === 'true'
+        : emergenciaOriginal === true;
+
+    // Sobrescribir el valor transformado del DTO.
+    const dtoNormalizado: InsertarPermisoPersonalDto = {
+      ...dto,
+      emergencia,
+    };
+
+    return this.permisosPersonalesService.insertarPermisoPersonal(dtoNormalizado, email, archivo);
   }
   // ============================================================
   // ANULAR PERMISO PERSONAL

@@ -143,8 +143,11 @@ export class PermisosPersonalesService {
     let transaccionConfirmada = false;
 
     try {
+      // Normalizar explícitamente el valor de emergencia.
+      const emergencia = String(dto.emergencia).trim().toLowerCase() === 'true';
+
       // El comprobante es obligatorio únicamente para emergencias.
-      if (dto.emergencia && !archivo) {
+      if (emergencia && !archivo) {
         throw new BadRequestException(
           'Debe adjuntar el comprobante médico para registrar una emergencia',
         );
@@ -165,7 +168,7 @@ export class PermisosPersonalesService {
             $5::boolean
           ) AS resultado
           `,
-          [email, dto.fecha, dto.horas, dto.motivo.trim(), dto.emergencia],
+          [email, dto.fecha, dto.horas, dto.motivo.trim(), emergencia],
         )) as ResultadoFuncionRow[];
 
         const resultado = rows[0]?.resultado;
