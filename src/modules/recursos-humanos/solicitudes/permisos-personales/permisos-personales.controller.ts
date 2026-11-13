@@ -26,7 +26,10 @@ import { PermisosPersonalesService } from './permisos-personales.service';
 import { RolesGuard } from '../../../../shared/guards/roles.guard';
 import { RequiereRol } from '../../../../shared/decorators/requiere-rol.decorator';
 import { RegistrarPermisoManualDto } from './dto/registrar-permiso-manual.dto';
-import { RegistrarJustificacionLlegadaTardiaDto } from './dto/registrar-justificacion-llegada-tardia.dto';
+import {
+  RegistrarJustificacionLlegadaTardiaDto,
+  RegistrarJustificacionLlegadaTardiaPropiaDto,
+} from './dto/registrar-justificacion-llegada-tardia.dto';
 
 type RequestAutenticado = Request & {
   user?: JwtPayload;
@@ -128,6 +131,59 @@ export class PermisosPersonalesController {
 
     return this.permisosPersonalesService.insertarPermisoPersonal(dtoNormalizado, email, archivo);
   }
+
+  @Post(':id/comprobante')
+  @UseInterceptors(
+    FileInterceptor('archivo', {
+      storage: diskStorage({
+        destination: (_req, _file, callback) => {
+          const directorio = join(process.cwd(), 'uploads', 'permisos-personales');
+          mkdirSync(directorio, { recursive: true });
+          callback(null, directorio);
+        },
+        filename: (_req, file, callback) => {
+          const extension = extname(file.originalname).toLowerCase();
+          callback(null, `${randomUUID()}${extension}`);
+        },
+      }),
+      limits: {
+        fileSize: 5 * 1024 * 1024,
+      },
+      fileFilter: (_req, file, callback) => {
+        const tiposPermitidos = ['application/pdf', 'image/jpeg', 'image/png'];
+
+        if (!tiposPermitidos.includes(file.mimetype)) {
+          return callback(
+            new BadRequestException('Solo se permiten archivos PDF, JPG y PNG'),
+            false,
+          );
+        }
+
+        callback(null, true);
+      },
+    }),
+  )
+  @ApiOperation({
+    summary: 'Adjuntar comprobante médico pendiente de una emergencia',
+  })
+  adjuntarComprobanteEmergencia(
+    @Req() request: RequestAutenticado,
+    @Param('id') idPermiso: string,
+    @UploadedFile() archivo?: Express.Multer.File,
+  ) {
+    const email = request.user?.email?.trim();
+
+    if (!email) {
+      throw new UnauthorizedException('No se pudo identificar al usuario autenticado');
+    }
+
+    if (!archivo) {
+      throw new BadRequestException('Debe seleccionar un comprobante médico');
+    }
+
+    return this.permisosPersonalesService.adjuntarComprobanteEmergencia(idPermiso, email, archivo);
+  }
+
   // ============================================================
   // ANULAR PERMISO PERSONAL
   // ============================================================
@@ -220,7 +276,67 @@ export class PermisosPersonalesController {
   ) {
     return this.permisosPersonalesService.consultarDisponibilidadManual(emailEmpleado, fecha);
   }
+  // ============================================================
+  // LLEGADAS TARDÍAS: REGISTRO PROPIO DEL EMPLEADO
+  // ============================================================
 
+  @Post('llegada-tardia/propia')
+  @ApiOperation({
+    summary: 'Registrar la justificación de llegada tardía del usuario autenticado',
+  })
+  registrarJustificacionLlegadaTardiaPropia(
+    @Req() request: RequestAutenticado,
+    @Body() dto: RegistrarJustificacionLlegadaTardiaPropiaDto,
+  ) {
+    const email = request.user?.email?.trim();
+
+    if (!email) {
+      throw new UnauthorizedException('No se pudo identificar al usuario autenticado');
+    }
+
+    const dtoPropio: RegistrarJustificacionLlegadaTardiaDto = {
+      ...dto,
+      emailEmpleado: email,
+    };
+
+    return this.permisosPersonalesService.registrarJustificacionLlegadaTardia(dtoPropio, email);
+  }
+
+  // ============================================================
+  // LLEGADAS TARDÍAS: HISTORIAL PROPIO DEL EMPLEADO
+  // ============================================================
+
+  @Get('llegadas-tardias/propias')
+  @ApiOperation({
+    summary: 'Consultar las justificaciones de llegada tardía del usuario autenticado',
+  })
+  @ApiQuery({
+    name: 'fechaInicio',
+    required: true,
+    example: '2026-11-01',
+  })
+  @ApiQuery({
+    name: 'fechaFinal',
+    required: true,
+    example: '2026-11-30',
+  })
+  consultarMisLlegadasTardias(
+    @Req() request: RequestAutenticado,
+    @Query('fechaInicio') fechaInicio: string,
+    @Query('fechaFinal') fechaFinal: string,
+  ) {
+    const email = request.user?.email?.trim();
+
+    if (!email) {
+      throw new UnauthorizedException('No se pudo identificar al usuario autenticado');
+    }
+
+    return this.permisosPersonalesService.consultarMisLlegadasTardias(
+      email,
+      fechaInicio,
+      fechaFinal,
+    );
+  }
   // ============================================================
   // LLEGADAS TARDÍAS: REGISTRO MANUAL
   // ============================================================

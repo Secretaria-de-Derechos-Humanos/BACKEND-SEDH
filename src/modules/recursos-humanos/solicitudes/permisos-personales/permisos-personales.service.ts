@@ -15,6 +15,7 @@ import { RegistrarPermisoManualDto } from './dto/registrar-permiso-manual.dto';
 import { RegistrarJustificacionLlegadaTardiaDto } from './dto/registrar-justificacion-llegada-tardia.dto';
 import { unlink } from 'fs/promises';
 import { relative, sep } from 'path';
+import { Cron } from '@nestjs/schedule';
 
 interface DisponibilidadRow {
   hordisponibles: string | null;
@@ -44,6 +45,49 @@ export class PermisosPersonalesService {
     private readonly notificacionesService: NotificacionesService,
   ) {}
 
+  private calcularFechaLimiteComprobante(fechaRegistro: string): string {
+    const fecha = new Date(`${fechaRegistro}T12:00:00`);
+    let diasHabiles = 0;
+    while (diasHabiles < 3) {
+      fecha.setDate(fecha.getDate() + 1);
+      const diaSemana = fecha.getDay();
+      if (diaSemana !== 0 && diaSemana !== 6) {
+        diasHabiles++;
+      }
+    }
+    const anio = fecha.getFullYear();
+    const mes = String(fecha.getMonth() + 1).padStart(2, '0');
+    const dia = String(fecha.getDate()).padStart(2, '0');
+    return `${anio}-${mes}-${dia}`;
+  }
+
+  @Cron('0 10 0 * * 1-5', {
+    timeZone: 'America/Tegucigalpa',
+  })
+  async vencerComprobantesPendientes(): Promise<void> {
+    try {
+      const resultado = await this.dataSource.query(`
+      UPDATE rrhh.permisos_personales
+      SET estado_comprobante = 'VENCIDO'
+      WHERE catemergencia = TRUE
+        AND estado_comprobante = 'PENDIENTE'
+        AND fecha_limite_comprobante IS NOT NULL
+        AND (
+          CURRENT_TIMESTAMP AT TIME ZONE 'America/Tegucigalpa'
+        )::date > fecha_limite_comprobante
+      RETURNING idpermisopersonal
+    `);
+
+      if (resultado.length > 0) {
+        this.logger.log(`Comprobantes médicos vencidos: ${resultado.length}`);
+      }
+    } catch (error) {
+      this.logger.error(
+        'Error al actualizar comprobantes médicos vencidos',
+        error instanceof Error ? error.stack : String(error),
+      );
+    }
+  }
   // ============================================================
   // LISTAR TODOS
   // ============================================================
@@ -145,14 +189,6 @@ export class PermisosPersonalesService {
     try {
       // Normalizar explícitamente el valor de emergencia.
       const emergencia = String(dto.emergencia).trim().toLowerCase() === 'true';
-
-      // El comprobante es obligatorio únicamente para emergencias.
-      if (emergencia && !archivo) {
-        throw new BadRequestException(
-          'Debe adjuntar el comprobante médico para registrar una emergencia',
-        );
-      }
-
       // ============================================================
       // REGISTRAR PERMISO Y GUARDAR REFERENCIA DEL ARCHIVO
       // ============================================================
@@ -191,24 +227,59 @@ export class PermisosPersonalesService {
         }
 
         // Guardar la ruta del comprobante en el permiso correspondiente.
-        if (archivo) {
-          const rutaRelativa = relative(process.cwd(), archivo.path).split(sep).join('/');
 
-          const actualizacion = await manager.query(
-            `
-            UPDATE rrhh.permisos_personales
-            SET referenciadocumento = $1
-            WHERE idpermisopersonal = $2::uuid
-            RETURNING idpermisopersonal
-            `,
-            [rutaRelativa, idPermiso],
+        // ============================================================
+        // CONTROL DEL COMPROBANTE MÉDICO
+        // ============================================================
+
+        // Obtener la fecha actual de Honduras desde PostgreSQL.
+        const fechaRegistroRows = await manager.query(`
+          SELECT
+            (CURRENT_TIMESTAMP AT TIME ZONE 'America/Tegucigalpa')::date::text
+              AS fecha_registro
+        `);
+
+        const fechaRegistro = fechaRegistroRows[0]?.fecha_registro;
+
+        if (!fechaRegistro) {
+          throw new InternalServerErrorException(
+            'No se pudo obtener la fecha de registro del permiso',
           );
+        }
 
-          if (!actualizacion?.length) {
-            throw new InternalServerErrorException(
-              'No se pudo asociar el comprobante al permiso personal',
-            );
-          }
+        // Calcular el estado y el plazo únicamente para emergencias.
+        const estadoComprobante = emergencia ? (archivo ? 'ENTREGADO' : 'PENDIENTE') : null;
+
+        const fechaLimite = emergencia ? this.calcularFechaLimiteComprobante(fechaRegistro) : null;
+
+        const fechaEntrega = emergencia && archivo ? fechaRegistro : null;
+
+        // Guardar la ruta si el empleado adjuntó el comprobante.
+        const rutaRelativa = archivo
+          ? relative(process.cwd(), archivo.path).split(sep).join('/')
+          : null;
+
+        const actualizacion = await manager.query(
+          `
+          UPDATE rrhh.permisos_personales
+          SET
+            referenciadocumento = COALESCE(
+              $1::character varying,
+              referenciadocumento
+            ),
+            estado_comprobante = $2::character varying,
+            fecha_limite_comprobante = $3::date,
+            fecha_entrega_comprobante = $4::date
+          WHERE idpermisopersonal = $5::uuid
+          RETURNING idpermisopersonal
+          `,
+          [rutaRelativa, estadoComprobante, fechaLimite, fechaEntrega, idPermiso],
+        );
+
+        if (!actualizacion?.length) {
+          throw new InternalServerErrorException(
+            'No se pudo actualizar el comprobante del permiso personal',
+          );
         }
 
         // Consultar el permiso recién creado por su ID.
@@ -302,6 +373,101 @@ export class PermisosPersonalesService {
       }
 
       throw new InternalServerErrorException('No se pudo registrar el permiso personal');
+    }
+  }
+
+  async adjuntarComprobanteEmergencia(
+    idPermiso: string,
+    email: string,
+    archivo: Express.Multer.File,
+  ) {
+    if (!archivo) {
+      throw new BadRequestException('Debe seleccionar un comprobante médico');
+    }
+
+    let archivoGuardado = false;
+
+    try {
+      const rutaRelativa = relative(process.cwd(), archivo.path).split(sep).join('/');
+
+      const resultado = await this.dataSource.transaction(async (manager) => {
+        const permisos = await manager.query(
+          `
+          SELECT
+            catemergencia,
+            estado_comprobante,
+            fecha_limite_comprobante,
+            referenciadocumento,
+            (CURRENT_TIMESTAMP AT TIME ZONE 'America/Tegucigalpa')::date
+              AS fecha_actual
+          FROM rrhh.permisos_personales
+          WHERE idpermisopersonal = $1::uuid
+            AND LOWER(TRIM(emailinstitucional)) = LOWER(TRIM($2))
+          FOR UPDATE
+          `,
+          [idPermiso, email],
+        );
+
+        const permiso = permisos?.[0];
+
+        if (!permiso) {
+          throw new NotFoundException(
+            'No se encontró el permiso o no pertenece al usuario autenticado',
+          );
+        }
+
+        if (permiso.catemergencia !== true) {
+          throw new BadRequestException('El permiso seleccionado no corresponde a una emergencia');
+        }
+
+        if (permiso.estado_comprobante !== 'PENDIENTE') {
+          throw new BadRequestException('El comprobante no está pendiente de entrega');
+        }
+
+        const vencido = await manager.query(
+          `
+          SELECT $1::date > $2::date AS vencido
+          `,
+          [permiso.fecha_actual, permiso.fecha_limite_comprobante],
+        );
+
+        if (vencido[0]?.vencido) {
+          throw new BadRequestException(
+            'El plazo de tres días hábiles para entregar el comprobante ha vencido',
+          );
+        }
+
+        const actualizado = await manager.query(
+          `
+          UPDATE rrhh.permisos_personales
+          SET
+            referenciadocumento = $1,
+            estado_comprobante = 'ENTREGADO',
+            fecha_entrega_comprobante = $2::date
+          WHERE idpermisopersonal = $3::uuid
+          RETURNING idpermisopersonal
+          `,
+          [rutaRelativa, permiso.fecha_actual, idPermiso],
+        );
+
+        if (!actualizado?.length) {
+          throw new InternalServerErrorException('No se pudo guardar el comprobante médico');
+        }
+
+        return {
+          status: 'OK',
+          mensaje: 'Comprobante médico adjuntado correctamente',
+          estadoComprobante: 'ENTREGADO',
+          fechaEntrega: permiso.fecha_actual,
+        };
+      });
+
+      archivoGuardado = true;
+      return resultado;
+    } finally {
+      if (!archivoGuardado) {
+        await unlink(archivo.path).catch(() => undefined);
+      }
     }
   }
 
@@ -686,9 +852,7 @@ export class PermisosPersonalesService {
           e.priapellido,
           e.segapellido
         ) AS empleado,
-
         c.nomcargo AS cargo,
-
         d.nomdependencia AS dependencia
 
       FROM rrhh.permisos_personales pp
@@ -708,12 +872,17 @@ export class PermisosPersonalesService {
         ON d.iddependencia =
            c.iddependencia
 
-      WHERE UPPER(TRIM(es.nomestado)) =
-            'APROBADO'
-
-        AND pp.fecsolicitud =
-            CURRENT_DATE
-
+ WHERE UPPER(TRIM(es.nomestado)) = 'APROBADO'
+  AND pp.fecsolicitud >= DATE_TRUNC(
+        'month',
+        CURRENT_TIMESTAMP AT TIME ZONE 'America/Tegucigalpa'
+      )::date
+  AND pp.fecsolicitud < (
+        DATE_TRUNC(
+          'month',
+          CURRENT_TIMESTAMP AT TIME ZONE 'America/Tegucigalpa'
+        ) + INTERVAL '1 month'
+      )::date
       ORDER BY
         pp.fecsolicitud ASC,
         empleado ASC
@@ -1304,36 +1473,47 @@ export class PermisosPersonalesService {
     const rows = await this.dataSource.query(
       `
       SELECT
-        pp.idpermisopersonal AS "idPermiso",
-        pp.emailinstitucional AS "emailInstitucional",
-        pp.fecsolicitud AS fecha,
-        pp.horsolicitadas::text AS horas,
-        pp.motivo AS motivo,
-        pp.catemergencia AS emergencia,
-        pp.horsalida::text AS "horaSalida",
-        pp.horretorno::text AS "horaRegreso",
-        pp.observacion AS observacion,
-        pp.referenciadocumento AS "referenciaDocumento",
-        UPPER(TRIM(es.nomestado)) AS estado,
-        CONCAT_WS(
-          ' ',
-          e.prinombre,
-          e.segnombre,
-          e.priapellido,
-          e.segapellido
-        ) AS empleado,
-        pp.creadoen AS "fechaRegistro",
-        pp.creadopor AS "registradoPor"
-      FROM rrhh.permisos_personales pp
-      INNER JOIN rrhh.estados_solicitudes es
-        ON es.idestadosolicitud = pp.idestadosolicitud
-      LEFT JOIN rrhh.empleados e
-        ON LOWER(TRIM(e.emailinstitucional)) =
-           LOWER(TRIM(pp.emailinstitucional))
-      WHERE pp.esmanual = TRUE
-        AND pp.fecsolicitud >= $1::date
-        AND pp.fecsolicitud < ($2::date + INTERVAL '1 day')
-      ORDER BY pp.fecsolicitud DESC, empleado ASC
+  pp.idpermisopersonal AS "idPermiso",
+  pp.emailinstitucional AS "emailInstitucional",
+  pp.fecsolicitud AS fecha,
+  pp.horsolicitadas::text AS horas,
+  hd.hordisponibles::text AS "horasDisponibles",
+  pp.motivo AS motivo,
+  pp.catemergencia AS emergencia,
+  pp.horsalida::text AS "horaSalida",
+  pp.horretorno::text AS "horaRegreso",
+  pp.observacion AS observacion,
+  pp.referenciadocumento AS "referenciaDocumento",
+  UPPER(TRIM(es.nomestado)) AS estado,
+  CONCAT_WS(
+    ' ',
+    e.prinombre,
+    e.segnombre,
+    e.priapellido,
+    e.segapellido
+  ) AS empleado,
+  d.nomdependencia AS "dependencia",
+  pp.creadoen AS "fechaRegistro",
+  pp.creadopor AS "registradoPor"
+FROM rrhh.permisos_personales pp
+INNER JOIN rrhh.estados_solicitudes es
+  ON es.idestadosolicitud = pp.idestadosolicitud
+LEFT JOIN rrhh.empleados e
+  ON LOWER(TRIM(e.emailinstitucional)) =
+     LOWER(TRIM(pp.emailinstitucional))
+LEFT JOIN rrhh.cargos c
+  ON c.idcargo = e.idcargo
+LEFT JOIN rrhh.dependencias d
+  ON d.iddependencia = c.iddependencia
+  LEFT JOIN rrhh.horas_disponibles hd
+  ON LOWER(TRIM(hd.emailinstitucional)) =
+     LOWER(TRIM(pp.emailinstitucional))
+ AND hd.periodo_saldo =
+     DATE_TRUNC('month', pp.fecsolicitud)::date
+WHERE pp.esmanual = TRUE
+  AND pp.fecsolicitud >= $1::date
+  AND pp.fecsolicitud < ($2::date + INTERVAL '1 day')
+ORDER BY pp.fecsolicitud DESC, empleado ASC
     `,
       [fechaInicio, fechaFinal],
     );
@@ -1447,15 +1627,28 @@ export class PermisosPersonalesService {
       const periodoActual = periodoResultado[0].periodo;
 
       // 3. Validar que la fecha exista y pertenezca al mes vigente.
-      const fechaResultado = await manager.query(`SELECT $1::date AS fecha`, [fecha]);
+
+      // 3. Validar que la llegada tardía pueda justificarse
+      // hasta 3 días calendario después de haber ocurrido.
+      const fechaResultado = await manager.query(
+        `
+    SELECT
+      $1::date AS fecha,
+      ($2::date - $1::date)::integer AS dias_transcurridos
+  `,
+        [fecha, hoy],
+      );
+
+      const diasTranscurridos = Number(fechaResultado[0]?.dias_transcurridos);
 
       if (
         !fechaResultado[0]?.fecha ||
-        String(fechaResultado[0].fecha).slice(0, 10) < String(periodoActual).slice(0, 10) ||
-        String(fechaResultado[0].fecha).slice(0, 10) > String(hoy).slice(0, 10)
+        !Number.isInteger(diasTranscurridos) ||
+        diasTranscurridos < 0 ||
+        diasTranscurridos > 3
       ) {
         throw new BadRequestException(
-          'La llegada tardía debe corresponder a una fecha del mes vigente que ya haya ocurrido',
+          'La llegada tardía solo puede justificarse hasta 3 días calendario después de haber ocurrido. No se permiten fechas futuras.',
         );
       }
 
@@ -1684,39 +1877,49 @@ export class PermisosPersonalesService {
 
     const rows = await this.dataSource.query(
       `
-      SELECT
-        j.idjustificacion AS "idJustificacion",
-        j.emailinstitucional AS "emailInstitucional",
-        j.fecha_llegada AS "fechaLlegada",
-        j.hora_entrada_establecida::text
-          AS "horaEntradaEstablecida",
-        j.hora_llegada_real::text AS "horaLlegadaReal",
-        j.minutos_retraso AS "minutosRetraso",
-        j.motivo,
-        j.referenciadocumento AS "referenciaDocumento",
-        j.hora_salida::text AS "horaSalida",
-        j.hora_regreso::text AS "horaRegreso",
-        j.observacion,
-        j.estado,
-        j.minutos_descontados AS "minutosDescontados",
-        j.creadoen AS "fechaRegistro",
-        j.creadopor AS "registradoPor",
-        j.actualizadoen AS "fechaActualizacion",
-        j.actualizadopor AS "actualizadoPor",
-        CONCAT_WS(
-          ' ',
-          e.prinombre,
-          e.segnombre,
-          e.priapellido,
-          e.segapellido
-        ) AS empleado
-      FROM rrhh.justificaciones_llegadas_tardias j
-      LEFT JOIN rrhh.empleados e
-        ON LOWER(TRIM(e.emailinstitucional)) =
-           LOWER(TRIM(j.emailinstitucional))
-      WHERE j.fecha_llegada >= $1::date
-        AND j.fecha_llegada < ($2::date + INTERVAL '1 day')
-      ORDER BY j.fecha_llegada DESC, empleado ASC
+     SELECT
+  j.idjustificacion AS "idJustificacion",
+  j.emailinstitucional AS "emailInstitucional",
+  j.fecha_llegada AS "fechaLlegada",
+  j.hora_entrada_establecida::text AS "horaEntradaEstablecida",
+  j.hora_llegada_real::text AS "horaLlegadaReal",
+  j.minutos_retraso AS "minutosRetraso",
+  j.motivo,
+  j.referenciadocumento AS "referenciaDocumento",
+  j.hora_salida::text AS "horaSalida",
+  j.hora_regreso::text AS "horaRegreso",
+  j.observacion,
+  j.estado,
+  j.minutos_descontados AS "minutosDescontados",
+  hd.hordisponibles::text AS "horasDisponibles",
+  j.creadoen AS "fechaRegistro",
+  j.creadopor AS "registradoPor",
+  j.actualizadoen AS "fechaActualizacion",
+  j.actualizadopor AS "actualizadoPor",
+  CONCAT_WS(
+    ' ',
+    e.prinombre,
+    e.segnombre,
+    e.priapellido,
+    e.segapellido
+  ) AS empleado,
+  d.nomdependencia AS "dependencia"
+FROM rrhh.justificaciones_llegadas_tardias j
+LEFT JOIN rrhh.empleados e
+  ON LOWER(TRIM(e.emailinstitucional)) =
+     LOWER(TRIM(j.emailinstitucional))
+LEFT JOIN rrhh.cargos c
+  ON c.idcargo = e.idcargo
+LEFT JOIN rrhh.dependencias d
+  ON d.iddependencia = c.iddependencia
+  LEFT JOIN rrhh.horas_disponibles hd
+  ON LOWER(TRIM(hd.emailinstitucional)) =
+     LOWER(TRIM(j.emailinstitucional))
+ AND hd.periodo_saldo =
+     DATE_TRUNC('month', j.fecha_llegada)::date
+WHERE j.fecha_llegada >= $1::date
+  AND j.fecha_llegada < ($2::date + INTERVAL '1 day')
+ORDER BY j.fecha_llegada DESC, empleado ASC
       `,
       [fechaInicio, fechaFinal],
     );
@@ -1727,7 +1930,71 @@ export class PermisosPersonalesService {
       data: rows,
     };
   }
+  // ============================================================
+  // CONSULTAR HISTORIAL PROPIO DE LLEGADAS TARDÍAS
+  // ============================================================
 
+  async consultarMisLlegadasTardias(email: string, fechaInicio: string, fechaFinal: string) {
+    this.validarRangoReporte(fechaInicio, fechaFinal);
+
+    const emailEmpleado = email.trim().toLowerCase();
+
+    const rows = await this.dataSource.query(
+      `
+      SELECT
+        j.idjustificacion AS "idJustificacion",
+        j.emailinstitucional AS "emailInstitucional",
+        j.fecha_llegada AS "fechaLlegada",
+        j.hora_entrada_establecida::text AS "horaEntradaEstablecida",
+        j.hora_llegada_real::text AS "horaLlegadaReal",
+        j.minutos_retraso AS "minutosRetraso",
+        j.motivo,
+        j.referenciadocumento AS "referenciaDocumento",
+        j.hora_salida::text AS "horaSalida",
+        j.hora_regreso::text AS "horaRegreso",
+        j.observacion,
+        j.estado,
+        j.minutos_descontados AS "minutosDescontados",
+        hd.hordisponibles::text AS "horasDisponibles",
+        j.creadoen AS "fechaRegistro",
+        j.creadopor AS "registradoPor",
+        j.actualizadoen AS "fechaActualizacion",
+        j.actualizadopor AS "actualizadoPor",
+        CONCAT_WS(
+          ' ',
+          e.prinombre,
+          e.segnombre,
+          e.priapellido,
+          e.segapellido
+        ) AS empleado,
+        d.nomdependencia AS "dependencia"
+      FROM rrhh.justificaciones_llegadas_tardias j
+      LEFT JOIN rrhh.empleados e
+        ON LOWER(TRIM(e.emailinstitucional)) =
+           LOWER(TRIM(j.emailinstitucional))
+      LEFT JOIN rrhh.cargos c
+        ON c.idcargo = e.idcargo
+      LEFT JOIN rrhh.dependencias d
+        ON d.iddependencia = c.iddependencia
+      LEFT JOIN rrhh.horas_disponibles hd
+        ON LOWER(TRIM(hd.emailinstitucional)) =
+           LOWER(TRIM(j.emailinstitucional))
+       AND hd.periodo_saldo =
+           DATE_TRUNC('month', j.fecha_llegada)::date
+      WHERE j.fecha_llegada >= $1::date
+        AND j.fecha_llegada < ($2::date + INTERVAL '1 day')
+        AND LOWER(TRIM(j.emailinstitucional)) = $3
+      ORDER BY j.fecha_llegada DESC
+      `,
+      [fechaInicio, fechaFinal, emailEmpleado],
+    );
+
+    return {
+      status: 'OK',
+      total: rows.length,
+      data: rows,
+    };
+  }
   // ============================================================
   // ANULAR JUSTIFICACIÓN Y DEVOLVER EL SALDO
   // ============================================================

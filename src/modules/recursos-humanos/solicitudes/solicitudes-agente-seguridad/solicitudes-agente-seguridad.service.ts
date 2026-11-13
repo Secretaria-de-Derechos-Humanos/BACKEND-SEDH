@@ -73,7 +73,17 @@ export class SolicitudesAgenteSeguridadService {
         LEFT JOIN rrhh.dependencias d
           ON d.iddependencia = c.iddependencia
 
-        WHERE UPPER(TRIM(es.nomestado)) = 'APROBADO'
+       WHERE UPPER(TRIM(es.nomestado)) = 'APROBADO'
+  AND pp.fecsolicitud >= DATE_TRUNC(
+        'month',
+        CURRENT_TIMESTAMP AT TIME ZONE 'America/Tegucigalpa'
+      )::date
+  AND pp.fecsolicitud < (
+        DATE_TRUNC(
+          'month',
+          CURRENT_TIMESTAMP AT TIME ZONE 'America/Tegucigalpa'
+        ) + INTERVAL '1 month'
+      )::date
 
         UNION ALL
 
@@ -116,6 +126,16 @@ export class SolicitudesAgenteSeguridadService {
           ON d.iddependencia = c.iddependencia
 
         WHERE UPPER(TRIM(es.nomestado)) = 'APROBADO'
+  AND po.fecsolicitud >= DATE_TRUNC(
+        'month',
+        CURRENT_TIMESTAMP AT TIME ZONE 'America/Tegucigalpa'
+      )::date
+  AND po.fecsolicitud < (
+        DATE_TRUNC(
+          'month',
+          CURRENT_TIMESTAMP AT TIME ZONE 'America/Tegucigalpa'
+        ) + INTERVAL '1 month'
+      )::date
       ) AS solicitudes
 
       ORDER BY

@@ -32,6 +32,17 @@ export class PermisoPersonal extends EntidadAuditoria {
   @Column({ name: 'catemergencia', type: 'boolean', nullable: true, default: false })
   catEmergencia!: boolean | null;
 
+  @Column({ name: 'referenciadocumento', type: 'varchar', nullable: true })
+  referenciaDocumento!: string | null;
+
+  @Column({ name: 'estado_comprobante', type: 'varchar', length: 20, nullable: true })
+  estadoComprobante!: string | null;
+
+  @Column({ name: 'fecha_limite_comprobante', type: 'date', nullable: true })
+  fechaLimiteComprobante!: Date | null;
+
+  @Column({ name: 'fecha_entrega_comprobante', type: 'date', nullable: true })
+  fechaEntregaComprobante!: Date | null;
   @Column({ name: 'priaprobacion', type: 'varchar', length: 50, nullable: true })
   priAprobacion!: string | null;
 

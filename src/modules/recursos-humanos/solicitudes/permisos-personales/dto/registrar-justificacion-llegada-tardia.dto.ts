@@ -65,3 +65,49 @@ export class RegistrarJustificacionLlegadaTardiaDto {
   })
   observacion?: string;
 }
+// ============================================================
+// DTO PARA JUSTIFICACIÓN DE LLEGADA TARDÍA PROPIA
+// El correo se obtiene exclusivamente del JWT.
+// ============================================================
+
+export class RegistrarJustificacionLlegadaTardiaPropiaDto {
+  @IsDateString()
+  fechaLlegada!: string;
+
+  @IsString()
+  @Matches(/^([01]\d|2[0-3]):[0-5]\d(:[0-5]\d)?$/, {
+    message: 'La hora de llegada debe tener el formato HH:mm o HH:mm:ss',
+  })
+  horaLlegadaReal!: string;
+
+  @IsString()
+  @MinLength(3)
+  @MaxLength(1000)
+  motivo!: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(255)
+  referenciaDocumento?: string;
+
+  @IsOptional()
+  @IsString()
+  @Matches(/^([01]\d|2[0-3]):[0-5]\d$/, {
+    message: 'La hora de salida debe tener el formato HH:mm',
+  })
+  horaSalida?: string;
+
+  @IsOptional()
+  @IsString()
+  @Matches(/^([01]\d|2[0-3]):[0-5]\d$/, {
+    message: 'La hora de regreso debe tener el formato HH:mm',
+  })
+  horaRegreso?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(500, {
+    message: 'La observación no puede superar los 500 caracteres',
+  })
+  observacion?: string;
+}

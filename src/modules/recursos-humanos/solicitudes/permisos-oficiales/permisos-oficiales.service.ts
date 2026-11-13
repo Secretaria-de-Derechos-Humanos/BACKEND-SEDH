@@ -335,17 +335,15 @@ export class PermisosOficialesService {
       if (!tipos.length) {
         throw new InternalServerErrorException('No se encontró el tipo PERMISO OFICIAL');
       }
-
       // Obtener el estado aprobado.
       const estados = await manager.query(
         `
-        SELECT idestadosolicitud
-        FROM rrhh.estados_solicitudes
-        WHERE UPPER(TRIM(nomestado)) = 'APROBADO'
-        LIMIT 1
-        `,
+    SELECT idestadosolicitud
+    FROM rrhh.estados_solicitudes
+    WHERE UPPER(TRIM(nomestado)) = 'APROBADO'
+    LIMIT 1
+  `,
       );
-
       if (!estados.length) {
         throw new InternalServerErrorException('No se encontró el estado APROBADO');
       }
@@ -585,37 +583,48 @@ export class PermisosOficialesService {
 
     const rows = await this.dataSource.query(
       `
-      SELECT
-        po.idpermisooficial AS "idPermiso",
-        po.emailinstitucional AS "emailInstitucional",
-        po.fecinicio AS "fechaInicio",
-        po.fecfinal AS "fechaFinal",
-        po.diaslaborables AS "diasLaborables",
-        po.horsalida::text AS "horaSalida",
-        po.horretorno::text AS "horaRegreso",
-        po.observacion AS observacion,
-        po.motivo AS motivo,
-        po.referenciadocumento AS "referenciaDocumento",
-        UPPER(TRIM(es.nomestado)) AS estado,
-        CONCAT_WS(
-          ' ',
-          e.prinombre,
-          e.segnombre,
-          e.priapellido,
-          e.segapellido
-        ) AS empleado,
-        po.creadoen AS "fechaRegistro",
-        po.creadopor AS "registradoPor"
-      FROM rrhh.permisos_oficiales po
-      INNER JOIN rrhh.estados_solicitudes es
-        ON es.idestadosolicitud = po.idestadosolicitud
-      LEFT JOIN rrhh.empleados e
-        ON LOWER(TRIM(e.emailinstitucional)) =
-           LOWER(TRIM(po.emailinstitucional))
-      WHERE po.esmanual = TRUE
-        AND po.fecinicio <= $2::date
-        AND po.fecfinal >= $1::date
-      ORDER BY po.fecinicio DESC, empleado ASC
+     SELECT
+  po.idpermisooficial AS "idPermiso",
+  po.emailinstitucional AS "emailInstitucional",
+  po.fecinicio AS "fechaInicio",
+  po.fecfinal AS "fechaFinal",
+  po.diaslaborables AS "diasLaborables",
+  hd.hordisponibles::text AS "horasDisponibles",
+  po.horsalida::text AS "horaSalida",
+  po.horretorno::text AS "horaRegreso",
+  po.observacion AS observacion,
+  po.motivo AS motivo,
+  po.referenciadocumento AS "referenciaDocumento",
+  UPPER(TRIM(es.nomestado)) AS estado,
+  CONCAT_WS(
+    ' ',
+    e.prinombre,
+    e.segnombre,
+    e.priapellido,
+    e.segapellido
+  ) AS empleado,
+  d.nomdependencia AS "dependencia",
+  po.creadoen AS "fechaRegistro",
+  po.creadopor AS "registradoPor"
+FROM rrhh.permisos_oficiales po
+INNER JOIN rrhh.estados_solicitudes es
+  ON es.idestadosolicitud = po.idestadosolicitud
+LEFT JOIN rrhh.empleados e
+  ON LOWER(TRIM(e.emailinstitucional)) =
+     LOWER(TRIM(po.emailinstitucional))
+LEFT JOIN rrhh.cargos c
+  ON c.idcargo = e.idcargo
+LEFT JOIN rrhh.dependencias d
+  ON d.iddependencia = c.iddependencia
+  LEFT JOIN rrhh.horas_disponibles hd
+  ON LOWER(TRIM(hd.emailinstitucional)) =
+     LOWER(TRIM(po.emailinstitucional))
+ AND hd.periodo_saldo =
+     DATE_TRUNC('month', po.fecinicio)::date
+WHERE po.esmanual = TRUE
+  AND po.fecinicio <= $2::date
+  AND po.fecfinal >= $1::date
+ORDER BY po.fecinicio DESC, empleado ASC
     `,
       [fechaInicio, fechaFinal],
     );
