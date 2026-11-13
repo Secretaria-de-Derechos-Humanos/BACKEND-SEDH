@@ -311,39 +311,70 @@ export class PermisosPersonalesService {
       transaccionConfirmada = true;
 
       // ============================================================
-      // CREAR NOTIFICACIÓN PARA EL JEFE INMEDIATO
+      // NOTIFICACIONES PARA JEFE INMEDIATO Y SUBGERENTES RRHH
       // ============================================================
 
+      const destinatarios = new Set<string>();
+
+      // 1. Obtener el usuario del jefe inmediato.
       if (permiso?.idsupinmediato) {
         try {
           const jefe = await this.dataSource.query(
             `
-          SELECT emailinstitucional
-          FROM rrhh.empleados
-          WHERE numidentidad = $1
-          LIMIT 1
-          `,
+              SELECT emailinstitucional
+              FROM rrhh.empleados
+              WHERE TRIM(numidentidad) = TRIM($1)
+              LIMIT 1
+            `,
             [permiso.idsupinmediato],
           );
 
           const emailJefe = jefe?.[0]?.emailinstitucional;
 
           if (emailJefe) {
-            await this.notificacionesService.crear(
-              await this.obtenerIdUsuarioPorEmail(emailJefe),
-              'Nueva solicitud de permiso personal',
-              `El empleado ${email} ha registrado una nueva solicitud de permiso personal para el día ${dto.fecha}.`,
-              'PERMISO_PERSONAL',
-              permiso.idpermisopersonal,
-            );
-          } else {
-            this.logger.warn(`No se encontró correo del jefe inmediato para ${email}`);
+            const idUsuarioJefe = await this.obtenerIdUsuarioPorEmail(emailJefe);
+
+            destinatarios.add(String(idUsuarioJefe));
           }
         } catch (error) {
           this.logger.warn(
-            `El permiso personal ${permiso.idpermisopersonal} fue creado, ` +
-              `pero no se pudo crear la notificación al jefe: ` +
-              `${error instanceof Error ? error.message : String(error)}`,
+            `No se pudo identificar al jefe inmediato: ${
+              error instanceof Error ? error.message : String(error)
+            }`,
+          );
+        }
+      }
+
+      // 2. Agregar todos los usuarios activos con rol Subgerente RRHH.
+      try {
+        const idsSubgerentes = await this.obtenerIdsSubgerentesRrhh();
+
+        idsSubgerentes.forEach((id) => destinatarios.add(String(id)));
+      } catch (error) {
+        this.logger.error(
+          `No se pudieron obtener los subgerentes RRHH: ${
+            error instanceof Error ? error.message : String(error)
+          }`,
+        );
+      }
+
+      // 3. Crear una notificación para cada destinatario sin duplicados.
+      for (const idUsuario of destinatarios) {
+        try {
+          await this.notificacionesService.crear(
+            idUsuario,
+            'Nueva solicitud de permiso personal',
+            `El empleado ${email} ha registrado una nueva solicitud de permiso personal para el día ${dto.fecha}.`,
+            'PERMISO_PERSONAL',
+            permiso?.idpermisopersonal ?? null,
+          );
+
+          this.logger.log(`[NOTIFICACIONES] Permiso personal notificado al usuario ${idUsuario}`);
+        } catch (error) {
+          this.logger.warn(
+            `No se pudo notificar al usuario ${idUsuario}: ${
+              error instanceof Error ? error.message : String(error)
+            }`,
           );
         }
       }
@@ -1108,6 +1139,20 @@ export class PermisosPersonalesService {
       throw new NotFoundException(`No se encontró el usuario correspondiente al correo ${email}`);
     }
     return idUsuario;
+  }
+  private async obtenerIdsSubgerentesRrhh(): Promise<string[]> {
+    const usuarios = await this.dataSource.query(
+      `
+      SELECT DISTINCT u.idusuario
+      FROM core.usuarios u
+      INNER JOIN core.usuario_roles ur
+        ON ur.idusuario = u.idusuario
+      WHERE ur.idrol = 3
+        AND u.activo = TRUE
+    `,
+    );
+
+    return usuarios.map((usuario: any) => String(usuario.idusuario));
   }
 
   async registrarPermisoManual(

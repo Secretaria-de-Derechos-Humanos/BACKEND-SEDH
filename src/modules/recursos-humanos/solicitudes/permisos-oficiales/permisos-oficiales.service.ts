@@ -120,101 +120,12 @@ export class PermisosOficialesService {
 
       const empleado = empleados?.[0];
 
-      if (!empleado) {
-        this.logger.warn(`[NOTIFICACIONES] No se encontró el empleado ${email}`);
-
-        return resultado;
-      }
-
-      // =======================================================
-      // 3. VERIFICAR JEFE INMEDIATO
-      // =======================================================
-
-      if (!empleado.idsupinmediato) {
-        this.logger.warn(
-          `[NOTIFICACIONES] El empleado ${email} no tiene jefe inmediato configurado.`,
-        );
-
-        return resultado;
-      }
-
-      this.logger.log(`[NOTIFICACIONES] Jefe inmediato encontrado: ${empleado.idsupinmediato}`);
-
-      // =======================================================
-      // 4. BUSCAR AL JEFE EN RRHH.EMPLEADOS
-      // =======================================================
-
-      const jefes = await this.dataSource.query(
-        `
-          SELECT
-            e.emailinstitucional,
-            e.prinombre,
-            e.segnombre,
-            e.priapellido,
-            e.segapellido
-          FROM rrhh.empleados e
-          WHERE TRIM(e.numidentidad) =
-                TRIM($1)
-          LIMIT 1
-          `,
-        [empleado.idsupinmediato],
-      );
-
-      const jefe = jefes?.[0];
-
-      if (!jefe) {
-        this.logger.warn(
-          `[NOTIFICACIONES] No se encontró el jefe con identificación ${empleado.idsupinmediato}`,
-        );
-
-        return resultado;
-      }
-
-      // =======================================================
-      // 5. BUSCAR EL USUARIO DEL JEFE
-      // =======================================================
-
-      const usuarios = await this.dataSource.query(
-        `
-          SELECT
-            u.idusuario
-          FROM core.usuarios u
-          WHERE LOWER(
-            TRIM(u.emailinstitucional)
-          ) = LOWER(
-            TRIM($1)
-          )
-          LIMIT 1
-          `,
-        [jefe.emailinstitucional],
-      );
-
-      const usuarioJefe = usuarios?.[0];
-
-      if (!usuarioJefe) {
-        this.logger.warn(
-          `[NOTIFICACIONES] No existe usuario en core.usuarios para ${jefe.emailinstitucional}`,
-        );
-
-        return resultado;
-      }
-
-      // =======================================================
-      // 6. NOMBRE DEL EMPLEADO
-      // =======================================================
-
-      const nombreEmpleado = [
-        empleado.prinombre,
-        empleado.segnombre,
-        empleado.priapellido,
-        empleado.segapellido,
-      ]
-        .filter(Boolean)
-        .join(' ');
-
-      // =======================================================
-      // 7. OBTENER ID DEL PERMISO SI LA FUNCIÓN LO DEVUELVE
-      // =======================================================
+      // 1. Preparar nombre e identificador de la solicitud.
+      const nombreEmpleado = empleado
+        ? [empleado.prinombre, empleado.segnombre, empleado.priapellido, empleado.segapellido]
+            .filter(Boolean)
+            .join(' ')
+        : email;
 
       let idSolicitud: string | null = null;
 
@@ -229,23 +140,86 @@ export class PermisosOficialesService {
           null;
       }
 
-      // =======================================================
-      // 8. CREAR NOTIFICACIÓN
-      // =======================================================
+      // 2. Preparar destinatarios sin duplicados.
+      const destinatarios = new Set<string>();
 
-      await this.notificacionesService.crear(
-        usuarioJefe.idusuario,
+      // 3. Buscar al jefe inmediato.
+      if (empleado?.idsupinmediato) {
+        try {
+          const jefes = await this.dataSource.query(
+            `
+              SELECT e.emailinstitucional
+              FROM rrhh.empleados e
+              WHERE TRIM(e.numidentidad) = TRIM($1)
+              LIMIT 1
+            `,
+            [empleado.idsupinmediato],
+          );
 
-        'Nueva solicitud de permiso oficial',
+          const emailJefe = jefes?.[0]?.emailinstitucional;
 
-        `El empleado ${nombreEmpleado} ha realizado una nueva solicitud de permiso oficial para el día ${dto.fecha}. Motivo: ${dto.motivo.trim()}`,
+          if (emailJefe) {
+            const usuarios = await this.dataSource.query(
+              `
+                SELECT u.idusuario
+                FROM core.usuarios u
+                WHERE LOWER(TRIM(u.emailinstitucional)) =
+                      LOWER(TRIM($1))
+                LIMIT 1
+              `,
+              [emailJefe],
+            );
 
-        'PERMISO_OFICIAL',
+            if (usuarios?.[0]?.idusuario) {
+              destinatarios.add(String(usuarios[0].idusuario));
+            }
+          }
+        } catch (error) {
+          this.logger.warn(
+            `[NOTIFICACIONES] No se pudo identificar al jefe inmediato: ${
+              error instanceof Error ? error.message : String(error)
+            }`,
+          );
+        }
+      } else {
+        this.logger.warn(
+          `[NOTIFICACIONES] El empleado ${email} no tiene jefe inmediato configurado.`,
+        );
+      }
 
-        idSolicitud,
-      );
+      // 4. Agregar los usuarios activos con rol Subgerente RRHH (rol 3).
+      try {
+        const idsSubgerentes = await this.obtenerIdsSubgerentesRrhh();
 
-      this.logger.log(`[NOTIFICACIONES] Notificación creada para jefe ${jefe.emailinstitucional}`);
+        idsSubgerentes.forEach((id) => destinatarios.add(String(id)));
+      } catch (error) {
+        this.logger.error(
+          `[NOTIFICACIONES] No se pudieron obtener los subgerentes RRHH: ${
+            error instanceof Error ? error.message : String(error)
+          }`,
+        );
+      }
+
+      // 5. Crear las notificaciones.
+      for (const idUsuario of destinatarios) {
+        try {
+          await this.notificacionesService.crear(
+            idUsuario,
+            'Nueva solicitud de permiso oficial',
+            `El empleado ${nombreEmpleado} ha realizado una nueva solicitud de permiso oficial para el día ${dto.fecha}. Motivo: ${dto.motivo.trim()}`,
+            'PERMISO_OFICIAL',
+            idSolicitud,
+          );
+
+          this.logger.log(`[NOTIFICACIONES] Permiso oficial notificado al usuario ${idUsuario}`);
+        } catch (error) {
+          this.logger.warn(
+            `[NOTIFICACIONES] No se pudo notificar al usuario ${idUsuario}: ${
+              error instanceof Error ? error.message : String(error)
+            }`,
+          );
+        }
+      }
 
       // =======================================================
       // 9. DEVOLVER RESULTADO ORIGINAL
@@ -634,6 +608,20 @@ ORDER BY po.fecinicio DESC, empleado ASC
       total: rows.length,
       data: rows,
     };
+  }
+  private async obtenerIdsSubgerentesRrhh(): Promise<string[]> {
+    const usuarios = await this.dataSource.query(
+      `
+      SELECT DISTINCT u.idusuario
+      FROM core.usuarios u
+      INNER JOIN core.usuario_roles ur
+        ON ur.idusuario = u.idusuario
+      WHERE ur.idrol = 3
+        AND u.activo = TRUE
+    `,
+    );
+
+    return usuarios.map((usuario: any) => String(usuario.idusuario));
   }
 
   private validarRangoReporte(fechaInicio: string, fechaFinal: string) {
