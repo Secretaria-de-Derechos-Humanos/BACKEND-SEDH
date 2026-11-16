@@ -1,5 +1,16 @@
-import { HttpException, Injectable, InternalServerErrorException, Logger } from '@nestjs/common';
+import {
+  HttpException,
+  Injectable,
+  InternalServerErrorException,
+  Logger,
+  NotFoundException,
+  BadRequestException,
+} from '@nestjs/common';
+
 import { DataSource } from 'typeorm';
+import { createReadStream, existsSync } from 'fs';
+import { resolve, sep, extname } from 'path';
+import { StreamableFile } from '@nestjs/common';
 
 @Injectable()
 export class SolicitudesEmpleadosService {
@@ -40,6 +51,70 @@ export class SolicitudesEmpleadosService {
         'getMisSolicitudesEmergencia',
         error,
         'No se pudieron obtener las solicitudes de emergencia',
+      );
+    }
+  }
+  async descargarComprobanteEmergencia(idPermiso: string) {
+    try {
+      const rows = await this.dataSource.query(
+        `
+      SELECT
+        referenciadocumento,
+        catemergencia,
+        estado_comprobante
+      FROM rrhh.permisos_personales
+      WHERE idpermisopersonal = $1::uuid
+      LIMIT 1
+      `,
+        [idPermiso],
+      );
+
+      const permiso = rows[0];
+
+      if (!permiso) {
+        throw new NotFoundException('No se encontró el permiso solicitado');
+      }
+
+      if (permiso.catemergencia !== true) {
+        throw new BadRequestException('El permiso no corresponde a una emergencia médica');
+      }
+
+      if (permiso.estado_comprobante !== 'ENTREGADO' || !permiso.referenciadocumento) {
+        throw new NotFoundException('El comprobante médico no está disponible');
+      }
+
+      const directorioPermitido = resolve(process.cwd(), 'uploads', 'permisos-personales');
+
+      const rutaArchivo = resolve(process.cwd(), permiso.referenciadocumento);
+
+      if (!rutaArchivo.startsWith(directorioPermitido + sep) || !existsSync(rutaArchivo)) {
+        throw new NotFoundException('No se encontró el archivo del comprobante');
+      }
+
+      const extension = extname(rutaArchivo).toLowerCase();
+
+      const tiposPermitidos: Record<string, string> = {
+        '.pdf': 'application/pdf',
+        '.jpg': 'image/jpeg',
+        '.jpeg': 'image/jpeg',
+        '.png': 'image/png',
+      };
+
+      const contentType = tiposPermitidos[extension];
+
+      if (!contentType) {
+        throw new BadRequestException('Formato de comprobante no permitido');
+      }
+
+      return new StreamableFile(createReadStream(rutaArchivo), {
+        type: contentType,
+        disposition: `attachment; filename="comprobante-medico${extension}"`,
+      });
+    } catch (error) {
+      this.manejarError(
+        'descargarComprobanteEmergencia',
+        error,
+        'No se pudo descargar el comprobante médico',
       );
     }
   }

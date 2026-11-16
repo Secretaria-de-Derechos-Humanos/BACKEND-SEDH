@@ -1,6 +1,6 @@
-import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
+import { Injectable, NotFoundException, BadRequestException, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { DataSource, Repository } from 'typeorm';
 import { Constancia } from './entities/constancia.entity';
 import { ConstanciaFinalidad } from './entities/constancia-finalidad.entity';
 import { CrearConstanciaDto } from './dto/crear-constancia.dto';
@@ -9,6 +9,8 @@ import { NotificacionesService } from '../notificaciones/notificaciones.service'
 
 @Injectable()
 export class ConstanciasService {
+  private readonly logger = new Logger(ConstanciasService.name);
+
   constructor(
     @InjectRepository(Constancia)
     private readonly constanciaRepo: Repository<Constancia>,
@@ -20,8 +22,21 @@ export class ConstanciasService {
     private readonly estadoSolicitudRepo: Repository<EstadoSolicitud>,
 
     private readonly notificacionesService: NotificacionesService,
+    private readonly dataSource: DataSource,
   ) {}
 
+  private async obtenerIdsUsuariosRrhh(): Promise<string[]> {
+    const usuarios = await this.dataSource.query(`
+    SELECT DISTINCT u.idusuario
+    FROM core.usuarios u
+    INNER JOIN core.usuario_roles ur
+      ON ur.idusuario = u.idusuario
+    WHERE ur.idrol IN (3, 5)
+      AND u.activo = TRUE
+  `);
+
+    return usuarios.map((usuario: any) => String(usuario.idusuario));
+  }
   // ============================================================
   // CREAR SOLICITUD DE CONSTANCIA
   // ============================================================
@@ -77,6 +92,46 @@ export class ConstanciasService {
       'CONSTANCIA',
       constanciaGuardada.idConstancia,
     );
+    // ============================================================
+    // NOTIFICAR NUEVA SOLICITUD A RRHH Y ADMINISTRADORES
+    // ============================================================
+
+    try {
+      const destinatarios = await this.obtenerIdsUsuariosRrhh();
+
+      for (const idDestinatario of destinatarios) {
+        // Evitar notificar al mismo empleado que realizó la solicitud.
+        if (String(idDestinatario) === String(idUsuario)) {
+          continue;
+        }
+
+        try {
+          await this.notificacionesService.crear(
+            idDestinatario,
+            'Nueva solicitud de constancia',
+            `El empleado ${emailInstitucional} ha registrado una nueva solicitud de constancia de trabajo.`,
+            'CONSTANCIA',
+            constanciaGuardada.idConstancia,
+          );
+
+          this.logger.log(
+            `[NOTIFICACIONES] Solicitud de constancia notificada al usuario ${idDestinatario}`,
+          );
+        } catch (error) {
+          this.logger.warn(
+            `No se pudo notificar al usuario ${idDestinatario}: ${
+              error instanceof Error ? error.message : String(error)
+            }`,
+          );
+        }
+      }
+    } catch (error) {
+      this.logger.error(
+        `No se pudieron obtener los destinatarios de RRHH: ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+      );
+    }
 
     return constanciaGuardada;
   }
