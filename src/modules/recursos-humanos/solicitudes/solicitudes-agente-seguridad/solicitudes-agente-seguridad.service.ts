@@ -74,6 +74,7 @@ export class SolicitudesAgenteSeguridadService {
           ON d.iddependencia = c.iddependencia
 
        WHERE UPPER(TRIM(es.nomestado)) = 'APROBADO'
+  AND COALESCE(pp.esmanual, FALSE) = FALSE
   AND pp.fecsolicitud >= DATE_TRUNC(
         'month',
         CURRENT_TIMESTAMP AT TIME ZONE 'America/Tegucigalpa'
@@ -125,7 +126,8 @@ export class SolicitudesAgenteSeguridadService {
         LEFT JOIN rrhh.dependencias d
           ON d.iddependencia = c.iddependencia
 
-        WHERE UPPER(TRIM(es.nomestado)) = 'APROBADO'
+       WHERE UPPER(TRIM(es.nomestado)) = 'APROBADO'
+  AND COALESCE(po.esmanual, FALSE) = FALSE
   AND po.fecsolicitud >= DATE_TRUNC(
         'month',
         CURRENT_TIMESTAMP AT TIME ZONE 'America/Tegucigalpa'
