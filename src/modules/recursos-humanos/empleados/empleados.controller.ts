@@ -7,6 +7,7 @@ import {
   Query,
   Req,
   UseGuards,
+  ForbiddenException,
 } from '@nestjs/common';
 import { ApiTags, ApiBearerAuth, ApiOperation, ApiBody } from '@nestjs/swagger';
 import { JwtAuthGuard } from '../../../core/auth/guards/jwt-auth.guard';
@@ -17,6 +18,7 @@ import { BuscarEmpleadoAdminDto } from './dto/buscar-empleado-admin.dto';
 import { ActualizarEmpleadoAdminDto } from './dto/actualizar-empleado-admin.dto';
 import { CrearEmpleadoAdminDto } from './dto/crear-empleado-admin.dto';
 import { VincularUsuarioEmpleadoDto } from './dto/vincular-usuario-empleado.dto';
+import { ActualizarDatosPersonalesDto } from './dto/actualizar-datos-personales.dto';
 
 interface UsuarioJwt {
   email: string;
@@ -36,6 +38,47 @@ interface RequestAutenticada {
 @Controller('rrhh/empleados')
 export class EmpleadosController {
   constructor(private readonly empleadosService: EmpleadosService) {}
+
+  @Post('actualizar-datos-personales')
+  @ApiOperation({
+    summary: 'Actualizar exclusivamente los datos personales de un empleado',
+  })
+  @ApiBody({ type: ActualizarDatosPersonalesDto })
+  @RequiereModulo(1)
+  actualizarDatosPersonales(
+    @Body() dto: ActualizarDatosPersonalesDto,
+    @Query('emailEmpleado') emailEmpleado: string,
+    @Req() req: RequestAutenticada,
+  ) {
+    const usuario = req.user;
+
+    if (!usuario?.email) {
+      throw new BadRequestException('No se pudo identificar al usuario autenticado');
+    }
+    const tieneRolAutorizado = usuario.roles?.some((acceso) => {
+      const modulos = Array.isArray(acceso.m)
+        ? acceso.m
+        : acceso.m !== undefined && acceso.m !== null
+          ? [acceso.m]
+          : [];
+
+      return (
+        [3, 5].includes(Number(acceso.r)) && modulos.some((idModulo) => Number(idModulo) === 1)
+      );
+    });
+
+    if (!tieneRolAutorizado) {
+      throw new ForbiddenException(
+        'No tiene autorización para modificar datos personales de empleados',
+      );
+    }
+
+    if (!emailEmpleado?.trim()) {
+      throw new BadRequestException('Debe proporcionar el correo institucional del empleado');
+    }
+
+    return this.empleadosService.actualizarDatosPersonales(emailEmpleado.trim(), dto);
+  }
 
   @Post('buscar')
   @ApiOperation({

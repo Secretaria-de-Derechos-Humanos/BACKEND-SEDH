@@ -945,4 +945,54 @@ export class EmpleadosService {
       );
     }
   }
+
+  async actualizarDatosPersonales(
+    emailEmpleado: string,
+    dto: {
+      priNombre?: string;
+      segNombre?: string;
+      priApellido?: string;
+      segApellido?: string;
+      numIdentidad?: string;
+      idSexo?: string;
+      idEstadoCivil?: string;
+      idMunicipio?: number | null;
+    },
+  ) {
+    const empleado = await this.findOne(emailEmpleado);
+    const cambios: Partial<Empleado> = {};
+    if (dto.priNombre !== undefined) {
+      cambios.priNombre = dto.priNombre.trim();
+    }
+    if (dto.segNombre !== undefined) {
+      cambios.segNombre = dto.segNombre.trim();
+    }
+    if (dto.priApellido !== undefined) {
+      cambios.priApellido = dto.priApellido.trim();
+    }
+    if (dto.segApellido !== undefined) {
+      cambios.segApellido = dto.segApellido.trim();
+    }
+    if (dto.numIdentidad !== undefined) {
+      cambios.numIdentidad = dto.numIdentidad.trim();
+    }
+    if (dto.idSexo !== undefined) {
+      cambios.idSexo = dto.idSexo;
+    }
+    if (dto.idEstadoCivil !== undefined) {
+      cambios.idEstadoCivil = dto.idEstadoCivil;
+    }
+    if (dto.idMunicipio !== undefined) {
+      cambios.idMunicipio = dto.idMunicipio;
+    }
+    if (Object.keys(cambios).length === 0) {
+      throw new BadRequestException('Debe proporcionar al menos un dato personal para actualizar');
+    }
+    await this.empleadoRepo.update({ emailInstitucional: empleado.emailInstitucional }, cambios);
+    return {
+      status: 'OK',
+      mensaje: 'Datos personales actualizados correctamente',
+      empleado: await this.findOne(emailEmpleado),
+    };
+  }
 }
