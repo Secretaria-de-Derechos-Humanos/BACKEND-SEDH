@@ -546,14 +546,12 @@ export class PermisosPersonalesService {
         );
       }
 
-      // 2. Impedir anulación si ya tiene las dos aprobaciones.
+      // 2. Impedir anulación si el jefe inmediato ya aprobó.
       const tieneAprobacionJefe = Boolean(permiso.priaprobacion?.trim());
 
-      const tieneAprobacionRRHH = Boolean(permiso.segaprobacion?.trim());
-
-      if (tieneAprobacionJefe && tieneAprobacionRRHH) {
+      if (tieneAprobacionJefe) {
         throw new BadRequestException(
-          'No se puede anular el permiso porque ya cuenta con las aprobaciones del jefe inmediato y Recursos Humanos',
+          'No se puede anular el permiso porque ya cuenta con la aprobación del jefe inmediato',
         );
       }
 
