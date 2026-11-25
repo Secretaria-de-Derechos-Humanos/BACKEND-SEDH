@@ -343,7 +343,7 @@ export class PermisosPersonalesController {
 
   @Post('llegada-tardia')
   @UseGuards(RolesGuard)
-  @RequiereRol(3, 5)
+  @RequiereRol(3, 5, 7)
   @ApiOperation({
     summary: 'Registrar y aprobar una justificación de llegada tardía',
   })
@@ -369,7 +369,7 @@ export class PermisosPersonalesController {
 
   @Get('llegadas-tardias')
   @UseGuards(RolesGuard)
-  @RequiereRol(3, 5)
+  @RequiereRol(3, 5, 7)
   @ApiOperation({
     summary: 'Consultar el historial de justificaciones de llegadas tardías',
   })
@@ -396,7 +396,7 @@ export class PermisosPersonalesController {
 
   @Post('llegada-tardia/anular/:id')
   @UseGuards(RolesGuard)
-  @RequiereRol(3, 5)
+  @RequiereRol(3, 5, 7)
   @ApiOperation({
     summary: 'Anular una justificación y devolver los minutos descontados',
   })

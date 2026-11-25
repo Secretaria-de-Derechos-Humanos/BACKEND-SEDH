@@ -83,17 +83,7 @@ export class ConstanciasController {
     email: string;
     roles: number[];
   } {
-    const usuario = this.obtenerUsuario(request);
-
-    // 1 = Empleado
-    // 5 = Administrador
-    const autorizado = usuario.roles.includes(1) || usuario.roles.includes(5);
-
-    if (!autorizado) {
-      throw new UnauthorizedException('No tiene permisos para realizar solicitudes de constancias');
-    }
-
-    return usuario;
+    return this.obtenerUsuario(request);
   }
 
   // ============================================================
@@ -109,7 +99,9 @@ export class ConstanciasController {
 
     // 3 = Subgerencia RRHH
     // 5 = Administrador
-    const autorizado = usuario.roles.includes(3) || usuario.roles.includes(5);
+
+    const autorizado =
+      usuario.roles.includes(3) || usuario.roles.includes(5) || usuario.roles.includes(7);
 
     if (!autorizado) {
       throw new UnauthorizedException(
